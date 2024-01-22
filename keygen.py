@@ -24,6 +24,7 @@ duration = 10
 # Set the sample rate and number of channels
 sample_rate = 44100
 channels = 1
+entropy = b""
 
 # Initialize the SHA256 hash object
 sha256_hash = hashlib.sha256()
@@ -34,11 +35,12 @@ def hash_pcm_data(indata, frames, time, status):
     sha256_hash.update(indata.tobytes())
 
 def genKeyboardSeededHash():
-    global sha256_hash
+    global entropy, sha256_hash
     # Get keyboard input
     data = input("Enter keyboard entropy: ")
+    entropy += data.encode()
     # Update the hash object with the keyboard input
-    sha256_hash.update(data.encode())
+    sha256_hash.update(entropy)
 
 def genAudioSeededHash():
     # Start listening to the microphone
@@ -53,8 +55,6 @@ def calculate_merkle_hash(data):
     hash_value = hashlib.sha256(str(data).encode()).digest()
     double_hash_value = hashlib.sha256(hash_value).digest()
     return double_hash_value[-16:].hex()
-
-
 
 print("Enter the connections for the tunnel")
 while True:
