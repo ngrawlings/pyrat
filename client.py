@@ -16,6 +16,8 @@ import random
 import subprocess
 import signal
 from collections import deque
+from utils.utils import get_file_list
+
 
 OPT_QUIT = 0xFF
 OPT_PING = 0x01
@@ -37,6 +39,7 @@ OPT_RELAY_START = 0x10
 OPT_RELAY_LIST = 0x11
 OPT_RELAY_STOP = 0x12
 OPT_RELAY_STOPALL = 0x13
+OPT_FOLDER_INFO = 0x14
 
 _run = True
 _connection_monitor_threads = []
@@ -298,6 +301,27 @@ class SocketThread(threading.Thread):
                     relay.close()
                 _relays.clear()
                 self.socket.send(OPT_RELAY_STOPALL.to_bytes(1, 'big') + b'\x01')
+
+            elif opt == OPT_FOLDER_INFO:
+                folder_path = packet.decode()
+                files = get_file_list(folder_path)
+                for file in files:
+                    creation_date = file['creation_date']
+                    changed_date = file['modified_date']
+                    sha256_hash = file['sha256_hash']
+                    file_name = file['name']
+                    file_size = file['file_size']
+
+                    creation_date_bytes = creation_date.to_bytes(8, 'big')
+                    changed_date_bytes = changed_date.to_bytes(8, 'big')
+                    hash_bytes = bytes.fromhex(sha256_hash)
+                    filename_length_bytes = len(file_name).to_bytes(2, 'big')
+                    filename_bytes = file_name.encode()
+                    file_size_bytes = file_size.to_bytes(8, 'big')
+
+                    packet = creation_date_bytes + changed_date_bytes + file_size_bytes + hash_bytes + filename_length_bytes + filename_bytes
+                        
+                    self.socket.send(OPT_FOLDER_INFO.to_bytes(1, 'big') + packet)
 
             else:
                 pass
@@ -591,6 +615,38 @@ class SocketThread(threading.Thread):
             return False
         else:
             return True
+        
+    def folderChecksums(self, folder_path):
+        self.socket.send(OPT_FOLDER_INFO.to_bytes(1, 'big') + folder_path.encode())
+        packet = self.socket.receive()
+        if not packet:
+            return
+        
+        opt = packet[0]
+        if opt != OPT_FOLDER_INFO:
+            print("Wrong reply")
+
+        data = packet[1:]
+        offset = 0
+        ret = []
+
+        while offset < len(data):
+            creation_bytes = data[offset:offset+8]  # Extract 8 bytes for creation data
+            change_bytes = data[offset+8:offset+16]  # Extract 8 bytes for change data
+            size_bytes = data[offset+16:offset+24]  # Extract 8 bytes for file size
+            
+            hash_bytes = data[offset+24:offset+56]  # Extract 32 bytes of the hash
+            filename_length = int.from_bytes(data[offset+56:offset+58], 'big')  # Extract 2 bytes for filename length
+            filename = data[offset+58:offset+58+filename_length].decode()  # Extract the filename
+            offset += 58+filename_length
+
+            creation_date = int.from_bytes(creation_bytes, 'big')
+            change_date = int.from_bytes(change_bytes, 'big')
+            file_size = int.from_bytes(size_bytes, 'big')
+
+            ret.append((filename, creation_date, change_date, file_size, hash_bytes))
+
+        return ret
         
 
     def close(self):
