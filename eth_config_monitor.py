@@ -18,6 +18,7 @@ def check_eth1_ip():
 
 def set_eth1_ip(ip_address):
     subprocess.run(['ip', 'addr', 'add', f'{ip_address}/24', 'dev', 'eth1'])
+    subprocess.run(['ifconfig', 'eth1', '10.0.1.1'])
 
 def check_wlan0_connection():
     result = subprocess.run(['iwconfig', 'wlan0'], capture_output=True, text=True)
@@ -28,12 +29,15 @@ def check_wlan0_connection():
         return False
     else:
         return True
-    
+
 def configure_wifi():
     subprocess.run(['iwlist', 'scan', 'wlan0'])
     time.sleep(10)
     subprocess.run(['kill', 'wpa_supplicant'])
+    subprocess.run(['rm', '/var/run/wpa_supplicant/wlan0'])
     subprocess.run(['wpa_supplicant', '-B', '-i', 'wlan0', '-c', '/etc/wpa_supplicant/wpa_supplicant.conf'])
+    time.sleep(30)
+    subprocess.run(['dhclient', 'wlan0'])
 
 while True:
     current_ip = check_eth1_ip()
