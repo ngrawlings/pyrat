@@ -8,11 +8,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--count", help="Keys", required=True, type=int)
 parser.add_argument("--tunnel_mode", help="Specify the tunnel mode", required=True)
 parser.add_argument("--output", help="Output File", required=True)
+parser.add_argument("--seed_type", help="Specify the seed type (audio/keyboard)", required=True)
 args = parser.parse_args()
 
 config = {
     "tunnel_mode": args.tunnel_mode,
-    "connections":[],
+    "connections": [],
+    "relays": [],
     "keys": []
 }
 
@@ -31,8 +33,14 @@ def hash_pcm_data(indata, frames, time, status):
     # Update the hash object with the PCM data chunk
     sha256_hash.update(indata.tobytes())
 
+def genKeyboardSeededHash():
+    global sha256_hash
+    # Get keyboard input
+    data = input("Enter keyboard entropy: ")
+    # Update the hash object with the keyboard input
+    sha256_hash.update(data.encode())
 
-def genHash():
+def genAudioSeededHash():
     # Start listening to the microphone
     with sd.InputStream(callback=hash_pcm_data, channels=channels, samplerate=sample_rate):
         sd.sleep(int(duration * 1000))
@@ -45,6 +53,8 @@ def calculate_merkle_hash(data):
     hash_value = hashlib.sha256(str(data).encode()).digest()
     double_hash_value = hashlib.sha256(hash_value).digest()
     return double_hash_value[-16:].hex()
+
+
 
 print("Enter the connections for the tunnel")
 while True:
@@ -72,7 +82,11 @@ while True:
         break
 
 for i in range(args.count):
-    key = genHash()
+    if args.seed_type == "keyboard":
+        key = genKeyboardSeededHash()
+    elif args.seed_type == "audio":
+        key = genAudioSeededHash()
+
     iv = calculate_merkle_hash(key)
     config["keys"].append({"key": key, "iv": iv})
     print(key + ":" + iv)
