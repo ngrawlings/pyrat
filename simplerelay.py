@@ -52,6 +52,8 @@ while True:
                 # Send cached packets to the newly connected client
                 for packet in packet_cache:
                     client_socket.send(packet.encode())
+
+                packet_cache.clear()
                 
                 # Clear the packet cache
                 packet_cache = []
@@ -63,15 +65,28 @@ while True:
 
         else:
             # Receive data from a connected socket
-            data = socket.recv(1024).decode()
-            if data:
-                print(f"Received data: {data.strip()} from {socket.getpeername()[0]}:{socket.getpeername()[1]}")
-                # Cache the received packet
-                packet_cache.append(data)
-                # Broadcast the received data to all other connected sockets
-                broadcast_message(socket, data)
-            else:
-                # If there is no data, remove the socket from the list
+            try:
+                data = socket.recv(1024).decode()
+                if data:
+                    print(f"Received data: {len(data)} bytes from {socket.getpeername()[0]}:{socket.getpeername()[1]}")
+                    # Cache the received packet
+                    packet_cache.append(data)
+                    # Broadcast the received data to all other connected sockets
+                    broadcast_message(socket, data)
+                else:
+                    # If there is no data, remove the socket from the list
+                    socket.close()
+                    sockets_list.remove(socket)
+                    connected_clients -= 1
+            except:
+                # If there is an error, remove the socket from the list
                 socket.close()
                 sockets_list.remove(socket)
-                connected_clients -= 1
+                
+                packet_cache.clear()
+                for socket in sockets_list:
+                    if socket != server_socket:
+                        socket.close()
+                        sockets_list.remove(socket)
+
+                connected_clients = 0
