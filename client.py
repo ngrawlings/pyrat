@@ -684,6 +684,8 @@ class ConnectionMonitorThread(threading.Thread):
 
                 if self.socket_mode == 'server' and len(_socket_threads) < 8:
                     encrypted_socket.accept(self._server_socket)
+                elif self.socket_mode == 'inverted':
+                    encrypted_socket.connectAsServer(self.host, self.port)
                 else:
                     key_len = len(self.enc_keys) 
                     randorandom_key_index = random.randint(0, key_len)
@@ -697,8 +699,8 @@ class ConnectionMonitorThread(threading.Thread):
                 _socket_threads.append(self._socket_thread)
 
                 if self.socket_mode == 'server' and len(_socket_threads) >= 8:
-                        time.sleep(10)    
-                elif self.socket_mode == 'client':
+                        time.sleep(10)
+                elif self.socket_mode == 'client' or self.socket_mode == 'inverted':
                     while self._socket_thread.socket.is_connected() and self._con_run:
                         time.sleep(10)
 
@@ -937,9 +939,13 @@ class ConsoleThread(threading.Thread):
                     port1 = int(parts[2])
                     host2 = parts[3]
                     port2 = int(parts[4])
-                    relay = PacketRelay(host1, port1, host2, port2)
-                    relay.start()
-                    _relays.append(relay)
+
+                    res = _selected_socket.startRelay(host1, port1, host2, port2)
+
+                    if res:
+                        print("Started relay")
+                    else:
+                        print("Failed to start relay")
 
                 elif parts[0] == "relay.list":
                     relays = _selected_socket.listRelays()

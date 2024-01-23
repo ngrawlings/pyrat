@@ -27,8 +27,9 @@ class PacketRelay:
         thread2.start()
 
     def listen(self, address, port, cache, other_cache, connected):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sockets.append(sock)
+        print(f"Relay: Listening on {address}:{port}")
         sock.bind((address, port))
         sock.listen(1)  # Listen for incoming connections
         conn, addr = sock.accept()  # Accept the connection
