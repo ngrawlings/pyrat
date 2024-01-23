@@ -43,6 +43,7 @@ def genKeyboardSeededHash():
     entropy += data.encode()
     # Update the hash object with the keyboard input
     sha256_hash.update(entropy)
+    return sha256_hash.hexdigest()
 
 def genAudioSeededHash():
     global count
@@ -58,8 +59,7 @@ def genAudioSeededHash():
         sd.sleep(int(d * 1000))
 
     # Get the final hash value
-    final_hash = sha256_hash.hexdigest()
-    return final_hash
+    return sha256_hash.hexdigest()
 
 def calculate_merkle_hash(data):
     hash_value = hashlib.sha256(str(data).encode()).digest()
@@ -88,7 +88,7 @@ if host_relay == 'yes':
         host2 = input("Enter host 2: ")
         port2 = input("Enter port 2: ")
         
-        config["relays"].append({"host": host, "port": port})
+        config["relays"].append({"host1": host1, "port1": port1, "host2": host2, "port2": port2})
         
         add_another = input("Add another entry? (y/n): ")
         if add_another.lower() != "y":
