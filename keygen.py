@@ -19,12 +19,14 @@ config = {
 }
 
 # Set the duration to listen to the microphone (in seconds)
-duration = 10
+duration = [60, 50, 40, 30, 20, 10, 9, 8, 7, 6, 5, 4, 3, 2]
 
 # Set the sample rate and number of channels
 sample_rate = 44100
 channels = 1
 entropy = b""
+
+count = 0
 
 # Initialize the SHA256 hash object
 sha256_hash = hashlib.sha256()
@@ -43,9 +45,17 @@ def genKeyboardSeededHash():
     sha256_hash.update(entropy)
 
 def genAudioSeededHash():
+    global count
     # Start listening to the microphone
+    
+    d = 1
+    if count < len(duration):
+        d = duration[count]
+
+    count = count + 1
+
     with sd.InputStream(callback=hash_pcm_data, channels=channels, samplerate=sample_rate):
-        sd.sleep(int(duration * 1000))
+        sd.sleep(int(d * 1000))
 
     # Get the final hash value
     final_hash = sha256_hash.hexdigest()
@@ -68,18 +78,22 @@ while True:
     if add_another.lower() != "y":
         break
 
-print("Enter the relay connections")
-while True:
-    host1 = input("Enter host 1: ")
-    port1 = input("Enter port 1: ")
-    host2 = input("Enter host 2: ")
-    port2 = input("Enter port 2: ")
-    
-    config["relays"].append({"host": host, "port": port})
-    
-    add_another = input("Add another entry? (y/n): ")
-    if add_another.lower() != "y":
-        break
+host_relay = input("Host a relay? (yes/NO): ")
+if host_relay == 'yes':
+
+    print("Enter the relay connections")
+    while True:
+        host1 = input("Enter host 1: ")
+        port1 = input("Enter port 1: ")
+        host2 = input("Enter host 2: ")
+        port2 = input("Enter port 2: ")
+        
+        config["relays"].append({"host": host, "port": port})
+        
+        add_another = input("Add another entry? (y/n): ")
+        if add_another.lower() != "y":
+            break
+
 
 for i in range(args.count):
     if args.seed_type == "keyboard":
@@ -89,7 +103,7 @@ for i in range(args.count):
 
     iv = calculate_merkle_hash(key)
     config["keys"].append({"key": key, "iv": iv})
-    print(key + ":" + iv)
+    print(str(i+1))
 
 # Write config object as JSON to a file
 with open(args.output, 'w') as f:
