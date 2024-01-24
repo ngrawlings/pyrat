@@ -183,7 +183,8 @@ class SocketThread(threading.Thread):
                     self.socket.send(OPT_FILE_GET_CHUNK.to_bytes(1, 'big') + b'')
 
             elif opt == OPT_FILE_OPEN:
-                file_path = packet.decode()
+                offset = int.from_bytes(packet[:8], 'big')
+                file_path = packet[8:].decode()
                 if os.path.exists(file_path):
                     _file_manager.open_file(file_path)
                     self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + b'\x01')
@@ -447,9 +448,10 @@ class SocketThread(threading.Thread):
         data = packet[1:]
         return data
     
-    def openFile(self, file_path):
+    def openFile(self, file_path, offset=0):
+        offset_bytes = offset.to_bytes(8, 'big')
         file_path_bytes = file_path.encode()
-        self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + file_path_bytes)
+        self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + offset_bytes + file_path_bytes)
         packet = self.socket.receive()
         if not packet:
             return
@@ -849,9 +851,14 @@ class ConsoleThread(threading.Thread):
                     local_path = parts[2]
                     total_received = 0
                     file_size = _selected_socket.fileSize(remote_path)
+
                     if file_size > 0:
-                        with open(local_path, "wb") as file:
-                            if _selected_socket.openFile(remote_path):
+                        offset = 0
+                        if os.path.exists(local_path):
+                            offset = os.path.getsize(local_path)
+
+                        with open(local_path, "ab" if offset > 0 else "wb") as file:
+                            if _selected_socket.openFile(remote_path, offset):
                                 while total_received < file_size:
                                     chunk = _selected_socket.readFile(remote_path)
                                     if not chunk:

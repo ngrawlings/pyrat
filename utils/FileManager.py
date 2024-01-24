@@ -2,9 +2,10 @@ class FileManager:
     def __init__(self):
         self.open_files = []
 
-    def open_file(self, file_path):
+    def open_file(self, file_path, offset=0):
         print("Opening file: " + file_path)
         file = open(file_path, 'rb')
+        file.seek(offset)
         self.open_files.append(file)
 
     def close_file(self, file_path=None):
