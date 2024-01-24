@@ -829,11 +829,18 @@ class ConsoleThread(threading.Thread):
                 elif parts[0] == "con.sendfile":
                     local_path = parts[1]
                     remote_path = parts[2]
+                    resume = True if len(parts) > 3 and parts[3] == "resume" else False
 
                     if os.path.exists(local_path):
-                        _selected_socket.fileTruncate(remote_path)
+                        if not resume:
+                            _selected_socket.fileTruncate(remote_path)
+
                         file_size = os.path.getsize(local_path)
                         with open(local_path, "rb") as file:
+                            if resume:
+                                offset = _selected_socket.fileSize(remote_path)
+                                file.seek(offset)
+                                
                             while True:
                                 chunk = file.read(1024)
                                 if not chunk:
@@ -856,6 +863,8 @@ class ConsoleThread(threading.Thread):
                         offset = 0
                         if os.path.exists(local_path):
                             offset = os.path.getsize(local_path)
+
+                        total_received = offset
 
                         with open(local_path, "ab" if offset > 0 else "wb") as file:
                             if _selected_socket.openFile(remote_path, offset):

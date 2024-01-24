@@ -1,5 +1,6 @@
 import socket
 import select
+import traceback
 
 # Create a TCP/IP socket
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -30,7 +31,7 @@ def broadcast_message(sender_socket, message):
         if socket != server_socket and socket != sender_socket:
             try:
                 # Send the message to the socket
-                socket.send(message.encode())
+                socket.send(message)
             except:
                 # If there is an error, remove the socket from the list
                 socket.close()
@@ -51,7 +52,8 @@ while True:
                 
                 # Send cached packets to the newly connected client
                 for packet in packet_cache:
-                    client_socket.send(packet.encode())
+                    if len(packet) > 0:
+                        client_socket.send(packet)
 
                 packet_cache.clear()
                 
@@ -66,11 +68,12 @@ while True:
         else:
             # Receive data from a connected socket
             try:
-                data = socket.recv(1024).decode()
+                data = socket.recv(1024)
                 if data:
                     print(f"Received data: {len(data)} bytes from {socket.getpeername()[0]}:{socket.getpeername()[1]}")
                     # Cache the received packet
-                    packet_cache.append(data)
+                    if len(data) > 0:
+                        packet_cache.append(data)
                     # Broadcast the received data to all other connected sockets
                     broadcast_message(socket, data)
                 else:
@@ -78,7 +81,8 @@ while True:
                     socket.close()
                     sockets_list.remove(socket)
                     connected_clients -= 1
-            except:
+            except Exception:
+                traceback.print_exc()
                 # If there is an error, remove the socket from the list
                 socket.close()
                 sockets_list.remove(socket)

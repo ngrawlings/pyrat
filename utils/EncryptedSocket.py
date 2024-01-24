@@ -54,6 +54,7 @@ class EncryptedSocket(Socket):
         self.key_index = int.from_bytes(self.safeRecv(4), byteorder='big')
 
         if self.key_index >= len(self.encryption_keys):
+            print(f"Invalid key index {self.key_index} ({self.version})")
             self.close()
             return
         
