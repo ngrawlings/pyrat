@@ -69,7 +69,7 @@ class SocketThread(threading.Thread):
                 packet = self.socket.receive()
             except Exception as e:
                 traceback.print_exc()
-                pass
+                self.close()
 
             if not packet:
                 break
