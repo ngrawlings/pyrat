@@ -41,6 +41,8 @@ OPT_RELAY_STOP = 0x12
 OPT_RELAY_STOPALL = 0x13
 OPT_FOLDER_INFO = 0x14
 
+_controlc_count = 0
+
 _run = True
 _connection_monitor_threads = []
 _socket_threads = []
@@ -722,7 +724,7 @@ class ConsoleThread(threading.Thread):
         super().__init__()
 
     def run(self):
-        global _run, _connection_monitor_threads, _socket_threads, _tunnels, _selected_socket, macros
+        global _controlc_count, _run, _connection_monitor_threads, _socket_threads, _tunnels, _selected_socket, macros
 
         commands = deque()
 
@@ -733,6 +735,7 @@ class ConsoleThread(threading.Thread):
                     line = commands.popleft()
                 else:
                     line = input("#: ")
+                    _controlc_count = 0
 
                 parts = []
                 in_quotes = False
@@ -842,6 +845,10 @@ class ConsoleThread(threading.Thread):
                                 file.seek(offset)
                                 
                             while True:
+                                if _controlc_count > 0:
+                                    _controlc_count -= 1
+                                    break
+
                                 chunk = file.read(1024)
                                 if not chunk:
                                     break
@@ -869,6 +876,10 @@ class ConsoleThread(threading.Thread):
                         with open(local_path, "ab" if offset > 0 else "wb") as file:
                             if _selected_socket.openFile(remote_path, offset):
                                 while total_received < file_size:
+                                    if _controlc_count > 0:
+                                        _controlc_count -= 1
+                                        break
+
                                     chunk = _selected_socket.readFile(remote_path)
                                     if not chunk:
                                         break
@@ -1027,9 +1038,21 @@ def load_config(file_path):
 
     return tunnel_mode, connections, relays, enc_keys
 
-# Example usage
+# Define a signal handler for SIGINT (Control+C)
+def signal_handler(sig, frame):
+    global _controlc_count
+
+    _controlc_count = _controlc_count + 1
+
+    if _controlc_count >= 2:
+        print("Control+C captured. Exiting...")
+        raise KeyboardInterrupt
+
 def main():
     global _run, tunnel_mode, connections, _relays, enc_keys, _selected_socket
+
+    # Register the signal handler for SIGINT
+    signal.signal(signal.SIGINT, signal_handler)
 
     parser = argparse.ArgumentParser(description='EncryptedSocket Client')
     parser.add_argument('config', type=str, help='Config file')
