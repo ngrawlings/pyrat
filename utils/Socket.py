@@ -1,6 +1,7 @@
 import socket
 import binascii
 import traceback
+import time
 
 class Socket:
     _listening = False
@@ -8,6 +9,8 @@ class Socket:
 
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.last_received_time = None
+        self.packet_counter = 0
 
     def bind(self, host, port):
         self.socket.bind((host, port))
@@ -32,6 +35,8 @@ class Socket:
         data = self.socket.recv(buffer_len)
         if not data:
             raise RuntimeError("Socket connection broken")
+        self.last_received_time = time.time()
+        self.packet_counter += 1
         return data
 
     def safeRecv(self, length):
@@ -41,6 +46,8 @@ class Socket:
             if not chunk:
                 raise RuntimeError("Socket connection broken")
             data += chunk
+        self.last_received_time = time.time()
+        self.packet_counter += 1
         return data
 
     def accept(self, sever_socket):
@@ -55,5 +62,11 @@ class Socket:
 
     def get_remote_address(self):
         return self._remote_address
+
+    def get_last_received_time(self):
+        return self.last_received_time
+
+    def get_packet_counter(self):
+        return self.packet_counter
     
     
