@@ -2,6 +2,7 @@ import os
 import threading
 import argparse
 import json
+from utils.SocketMonitor import SocketMonitor
 from utils.EncryptedSocket import EncryptedSocket, EncryptionParams
 from utils.Relay import PacketRelay
 from utils.Tunnel import Tunnel, Mode as TunnelMode
@@ -17,7 +18,9 @@ import subprocess
 import signal
 from collections import deque
 from utils.utils import get_file_list
-
+import queue
+import socket
+from datetime import datetime
 
 OPT_QUIT = 0xFF
 OPT_PING = 0x01
@@ -41,6 +44,9 @@ OPT_RELAY_STOP = 0x12
 OPT_RELAY_STOPALL = 0x13
 OPT_FOLDER_INFO = 0x14
 
+OPT_KEEP_ALIVE_REQ = 0x20
+OPT_KEEP_ALIVE_REP = 0x21
+
 _controlc_count = 0
 
 _run = True
@@ -52,6 +58,8 @@ _relays = []
 
 _selected_socket = None
 
+_socket_monitor = SocketMonitor()
+
 macros = Macros("macros.json")
 
 class SocketThread(threading.Thread):
@@ -61,14 +69,27 @@ class SocketThread(threading.Thread):
     def __init__(self, socket):
         super().__init__()
         self.socket = socket
+        self.queue = queue.Queue()
 
     def run(self):
         global _run, _connection_monitor_threads, _socket_threads, _tunnels, _file_manager, _selected_socket
 
         while _run and self._con_run:
             packet = None
+            self.socket.settimeout(5)
+
             try:
                 packet = self.socket.receive()
+            except socket.timeout:
+                if _tunnel_mode == 'remote' and self.socket.get_last_received_time() < time.time() - 300:
+                    print("Timeout: No packet received")
+                    self.close()
+                    break
+                elif self.socket.get_last_received_time() < time.time() - 60:
+                    print("Timeout: No packet received - keep alive")
+                    self.keepAlive()
+
+                continue
             except Exception as e:
                 traceback.print_exc()
                 self.close()
@@ -76,6 +97,18 @@ class SocketThread(threading.Thread):
             if not packet:
                 break
 
+            if packet[0] == OPT_KEEP_ALIVE_REQ:
+                print("OPT_KEEP_ALIVE_REQ", datetime.now())
+                self.socket.send(OPT_KEEP_ALIVE_REP.to_bytes(1, 'big'))
+            elif packet[0] == OPT_KEEP_ALIVE_REP:
+                print("OPT_KEEP_ALIVE_REP")
+                continue # silently drop packet the last recv time has already been updated
+            else:
+                if _tunnel_mode == 'local':
+                    print("Received (queueing packet): "+ packet.decode())
+                    self.queue.put(packet)
+                    continue
+       
             opt = packet[0]
             packet = packet[1:]
             
@@ -329,10 +362,13 @@ class SocketThread(threading.Thread):
             else:
                 pass
 
+    def keepAlive(self):
+        self.socket.send(OPT_KEEP_ALIVE_REQ.to_bytes(1, 'big'))
+        
     def ping(self, data):
         print("Pinging : "+ data)
         self.socket.send(OPT_PING.to_bytes(1, 'big') + data.encode())
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -346,7 +382,7 @@ class SocketThread(threading.Thread):
     def cmd(self, command, timeout_millis=15000):
         timeout_bytes = timeout_millis.to_bytes(4, 'big')
         self.socket.send(OPT_CLI.to_bytes(1, 'big') + timeout_bytes + command.encode())
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -360,7 +396,7 @@ class SocketThread(threading.Thread):
     def cmdStdIn(self, pid, data, timeout_millis=15000):
         pid_bytes = pid.to_bytes(4, 'big')
         self.socket.send(OPT_PIPE_STDIN.to_bytes(1, 'big') + timeout_millis.to_bytes(4, 'big') + pid_bytes + data)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -377,7 +413,7 @@ class SocketThread(threading.Thread):
     def cmdStdOut(self, pid, timeout_millis=15000):
         pid_bytes = pid.to_bytes(4, 'big')
         self.socket.send(OPT_PIPE_STDOUT.to_bytes(1, 'big') + timeout_millis.to_bytes(4, 'big') + pid_bytes)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -391,7 +427,7 @@ class SocketThread(threading.Thread):
     def fileTruncate(self, file_path):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_TRUNCATE.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -408,7 +444,7 @@ class SocketThread(threading.Thread):
     def sendFileAppend(self, file_path, data):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_APPEND.to_bytes(1, 'big') + file_path_bytes + b'\x00' + data)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -422,7 +458,7 @@ class SocketThread(threading.Thread):
     def fileSize(self, file_path):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_SIZE.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -439,7 +475,7 @@ class SocketThread(threading.Thread):
         offset_bytes = offset.to_bytes(8, 'big')
         size_bytes = size.to_bytes(8, 'big')
         self.socket.send(OPT_FILE_GET_CHUNK.to_bytes(1, 'big') + offset_bytes + size_bytes + file_path_bytes)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -454,7 +490,7 @@ class SocketThread(threading.Thread):
         offset_bytes = offset.to_bytes(8, 'big')
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + offset_bytes + file_path_bytes)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -471,7 +507,7 @@ class SocketThread(threading.Thread):
     def readFile(self, file_path): 
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_READ.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -485,7 +521,7 @@ class SocketThread(threading.Thread):
     def closeFile(self, file_path):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_CLOSE.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -501,7 +537,7 @@ class SocketThread(threading.Thread):
 
     def openTunnel(self, enc_mode, socket_mode, key_index, address, port, enc_address, enc_port):
         self.socket.send(OPT_TUNNEL_OPEN.to_bytes(1, 'big') + enc_mode.to_bytes(1, 'big') + socket_mode.to_bytes(1, 'big') + key_index.to_bytes(2, 'big') + (address +","+ str(port) +","+ enc_address +","+ str(enc_port)).encode())
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -517,7 +553,7 @@ class SocketThread(threading.Thread):
 
     def closeTunnel(self, tunnel_index):
         self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + tunnel_index.to_bytes(1, 'big'))
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -533,7 +569,7 @@ class SocketThread(threading.Thread):
         
     def tunnelStatus(self, tunnel_index):
         self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + tunnel_index.to_bytes(1, 'big'))
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -546,7 +582,7 @@ class SocketThread(threading.Thread):
     
     def startRelay(self, host1, port1, host2, port2):
         self.socket.send(OPT_RELAY_START.to_bytes(1, 'big') + (host1 +","+ str(port1) +","+ host2 +","+ str(port2)).encode())
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -562,7 +598,7 @@ class SocketThread(threading.Thread):
         
     def listRelays(self):
         self.socket.send(OPT_RELAY_LIST.to_bytes(1, 'big'))
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -590,7 +626,7 @@ class SocketThread(threading.Thread):
     
     def stopRelay(self, relay_index):
         self.socket.send(OPT_RELAY_STOP.to_bytes(1, 'big') + relay_index.to_bytes(1, 'big'))
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -606,7 +642,7 @@ class SocketThread(threading.Thread):
         
     def stopAllRelays(self):
         self.socket.send(OPT_RELAY_STOPALL.to_bytes(1, 'big'))
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -622,7 +658,7 @@ class SocketThread(threading.Thread):
         
     def folderChecksums(self, folder_path):
         self.socket.send(OPT_FOLDER_INFO.to_bytes(1, 'big') + folder_path.encode())
-        packet = self.socket.receive()
+        packet = self.queue.get()
         if not packet:
             return
         
@@ -685,11 +721,13 @@ class ConnectionMonitorThread(threading.Thread):
 
                 # Create an encrypted socket and connect to the server
                 encrypted_socket = EncryptedSocket(self.enc_keys)
+                encrypted_socket.settimeout(300)
 
                 if self.socket_mode == 'server' and len(_socket_threads) < 8:
                     encrypted_socket.accept(self._server_socket)
                 elif self.socket_mode == 'inverted':
-                    encrypted_socket.connectAsServer(self.host, self.port)
+                    if not encrypted_socket.connectAsServer(self.host, self.port, 900):
+                        continue
                 else:
                     key_len = len(self.enc_keys) 
                     randorandom_key_index = random.randint(0, key_len)
@@ -697,8 +735,7 @@ class ConnectionMonitorThread(threading.Thread):
                     encrypted_socket.connect(self.host, self.port, randorandom_key_index)
 
                 self._socket_thread = SocketThread(encrypted_socket)
-                if (self.tunnel_mode == 'remote'):
-                    self._socket_thread.start()
+                self._socket_thread.start()
 
                 _socket_threads.append(self._socket_thread)
 
@@ -1049,7 +1086,7 @@ def signal_handler(sig, frame):
         raise KeyboardInterrupt
 
 def main():
-    global _run, tunnel_mode, connections, _relays, enc_keys, _selected_socket
+    global _run, _tunnel_mode, connections, _relays, enc_keys, _selected_socket
 
     # Register the signal handler for SIGINT
     signal.signal(signal.SIGINT, signal_handler)
@@ -1058,7 +1095,7 @@ def main():
     parser.add_argument('config', type=str, help='Config file')
     args = parser.parse_args()
 
-    tunnel_mode, connections, relays, enc_keys = load_config(args.config)
+    _tunnel_mode, connections, relays, enc_keys = load_config(args.config)
 
     for relay in relays:
         host1, port1, host2, port2 = relay
@@ -1070,14 +1107,14 @@ def main():
     for connection in connections:
         host, port, socket_mode = connection
 
-        con_thread = ConnectionMonitorThread(tunnel_mode, socket_mode, host, port, enc_keys)
+        con_thread = ConnectionMonitorThread(_tunnel_mode, socket_mode, host, port, enc_keys)
         con_thread.start()
         _connection_monitor_threads.append(con_thread)
         
     if len(_socket_threads) > 0:
         _selected_socket = _socket_threads[0]
 
-    if tunnel_mode == 'local':
+    if _tunnel_mode == 'local':
         console_thread = ConsoleThread()
         console_thread.start()
         console_thread.join()

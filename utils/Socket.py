@@ -12,6 +12,9 @@ class Socket:
         self.last_received_time = None
         self.packet_counter = 0
 
+    def settimeout(self, timeout):
+        self.socket.settimeout(timeout)
+
     def bind(self, host, port):
         self.socket.bind((host, port))
 

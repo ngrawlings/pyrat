@@ -1,6 +1,15 @@
+import sys
 import socket
 import select
 import traceback
+
+# Check if the port number is provided as a command line argument
+if len(sys.argv) < 2:
+    print("Usage: python simplerelay.py <port>")
+    sys.exit(1)
+
+# Get the port number from the command line argument
+port = int(sys.argv[1])
 
 # Create a TCP/IP socket
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -20,7 +29,7 @@ sockets_list = [server_socket]
 print(f"Server listening on {host}:{port}")
 
 # List to cache received packets
-packet_cache = []
+pending_packet = None
 
 # Counter to keep track of connected clients
 connected_clients = 0
@@ -50,15 +59,11 @@ while True:
                 connected_clients += 1
                 print(f"New connection from {client_address[0]}:{client_address[1]}")
                 
-                # Send cached packets to the newly connected client
-                for packet in packet_cache:
-                    if len(packet) > 0:
-                        client_socket.send(packet)
+                if pending_packet is not None:
+                    # Send the cached packet to the newly connected socket
+                    client_socket.send(pending_packet)
+                    pending_packet = None
 
-                packet_cache.clear()
-                
-                # Clear the packet cache
-                packet_cache = []
             else:
                 # Reject the connection or handle it in some other way
                 client_socket, client_address = server_socket.accept()
@@ -73,24 +78,25 @@ while True:
                     print(f"Received data: {len(data)} bytes from {socket.getpeername()[0]}:{socket.getpeername()[1]}")
                     # Cache the received packet
                     if len(data) > 0:
-                        packet_cache.append(data)
+                        pending_packet = data
                     # Broadcast the received data to all other connected sockets
                     broadcast_message(socket, data)
                 else:
-                    # If there is no data, remove the socket from the list
-                    socket.close()
-                    sockets_list.remove(socket)
-                    connected_clients -= 1
+                    packet_cache = None
+                    for socket in sockets_list:
+                        if socket != server_socket:
+                            socket.close()
+                            
+                    sockets_list.clear()
+
             except Exception:
                 traceback.print_exc()
-                # If there is an error, remove the socket from the list
-                socket.close()
-                sockets_list.remove(socket)
-                
-                packet_cache.clear()
+
+                packet_cache = None
                 for socket in sockets_list:
                     if socket != server_socket:
                         socket.close()
-                        sockets_list.remove(socket)
+
+                sockets_list.clear()
 
                 connected_clients = 0

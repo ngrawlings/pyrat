@@ -3,6 +3,7 @@ from utils.Socket import Socket
 from Crypto.Cipher import AES
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+import socket
 
 VERSION = 1
 
@@ -46,23 +47,29 @@ class EncryptedSocket(Socket):
         print(" Key Index: " + str(self.key_index)) 
         self._init_aes_instances()
 
-    def connectAsServer(self, address, port):
-        super().connect(address, port)
+    def connectAsServer(self, address, port, timeout=900):
+        self.socket.settimeout(timeout)
 
-        self.socket.send(b'\x01')
-        self.version = int.from_bytes(self.safeRecv(4), byteorder='big')
-        self.key_index = int.from_bytes(self.safeRecv(4), byteorder='big')
+        try:
+            super().connect(address, port)
 
-        if self.key_index >= len(self.encryption_keys):
-            print(f"Invalid key index {self.key_index} ({self.version})")
-            self.close()
-            return
+            self.socket.send(b'\x01')
+            self.version = int.from_bytes(self.safeRecv(4), byteorder='big')
+            self.key_index = int.from_bytes(self.safeRecv(4), byteorder='big')
+
+            if self.key_index >= len(self.encryption_keys):
+                print(f"Invalid key index {self.key_index} ({self.version})")
+                self.close()
+                return
+            
+            print("New connection:")
+            print(" Version: " + str(self.version))
+            print(" Key Index: " + str(self.key_index)) 
+            self._init_aes_instances()
+        except socket.timeout:
+            return False
         
-        print("New connection:")
-        print(" Version: " + str(self.version))
-        print(" Key Index: " + str(self.key_index)) 
-        self._init_aes_instances()
-
+        return True
 
     def connect(self, address, port, key_index=0):
         self.key_index = key_index
