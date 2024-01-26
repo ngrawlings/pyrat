@@ -1,5 +1,5 @@
 from web.CmdRelay import HTTPCommandRelayClient
-from utils.utils import load_config
+from utils.config import load_config
 import argparse
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
