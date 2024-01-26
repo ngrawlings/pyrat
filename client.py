@@ -1087,7 +1087,7 @@ def main():
         _connection_monitor_threads.append(con_thread)
 
     for http_fallback in http_fallbacks:
-        wcp = WebCommandParser(http_fallback, 'remote', enc_keys)
+        wcp = WebCommandParser(http_fallback['url'], http_fallback['channel'], enc_keys)
         wcp.start()
         _http_fallbacks.append(wcp)
         

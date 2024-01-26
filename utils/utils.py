@@ -21,15 +21,19 @@ def load_config(file_path):
             socket_mode = connection['socket_mode']
             connections.append((host, port, socket_mode))
 
-        for relay in data['relays']:
-            host1 = relay['host1']
-            port1 = int(relay['port1'])
-            host2 = relay['host2']
-            port2 = int(relay['port2'])
-            relays.append((host1, port1, host2, port2))
+        if 'relays' in data:
+            for relay in data['relays']:
+                host1 = relay['host1']
+                port1 = int(relay['port1'])
+                host2 = relay['host2']
+                port2 = int(relay['port2'])
+                relays.append((host1, port1, host2, port2))
 
-        for fallback in data['http_fallback']:
-            http_fallbacks.append(fallback)
+        if 'http_fallback' in data:
+            for fallback in data['http_fallback']:
+                url = fallback['url']
+                channel = fallback['channel']
+                http_fallbacks.append((url, channel))
 
         for item in data['keys']:
             key = item['key']
