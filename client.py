@@ -98,270 +98,274 @@ class SocketThread(threading.Thread):
             if not packet:
                 break
 
-            if packet[0] == OPT_KEEP_ALIVE_REQ:
-                print("OPT_KEEP_ALIVE_REQ", datetime.now())
-                self.socket.send(OPT_KEEP_ALIVE_REP.to_bytes(1, 'big'))
-            elif packet[0] == OPT_KEEP_ALIVE_REP:
-                print("OPT_KEEP_ALIVE_REP")
-                continue # silently drop packet the last recv time has already been updated
-            else:
-                if _tunnel_mode == 'local':
-                    print("Received (queueing packet): "+ packet.decode())
-                    self.queue.put(packet)
-                    continue
-       
-            opt = packet[0]
-            packet = packet[1:]
-            
-            # Switch case based on opt value
-            if opt == OPT_QUIT:
-                _run = False
-                break
-            
-            elif opt == OPT_PING:
-                print("Ping: "+ packet.decode())
-                self.socket.send(OPT_PING.to_bytes(1, 'big') + packet)
-
-            elif opt == OPT_CLI:
-                timeout = float(int.from_bytes(packet[:4], 'big'))/1000
-                command = packet[4:].decode('utf-8')
-                try:
-                    def run_command_with_timeout(command, timeout):
-                        print("Executing: "+ command + " with timeout: "+ str(timeout))
-                        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        try:
-                            output, error = process.communicate(timeout=timeout)
-                            return process.pid, output
-                        except subprocess.TimeoutExpired:
-                            return process.pid, None
-
-                    pid, output = run_command_with_timeout(command, timeout)
-                    print("Stdin Output: "+ str(output))
-                    if output is not None:
-                        self.socket.send(OPT_CLI.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
-                    else:
-                        self.socket.send(OPT_CLI.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
-
-                except subprocess.CalledProcessError as e:
-                    error_message = str(e).encode('utf-8')
-                    self.socket.send(OPT_CLI.to_bytes(1, 'big') + error_message)
-
-            elif opt == OPT_PIPE_STDIN:
-                pid = int.from_bytes(packet[:4], 'big')
-                timeout = int.from_bytes(packet[4:8], 'big')/1000
-                packet = packet[8:].decode('unicode_escape')
-                process = subprocess.Popen(["/bin/sh", "-c", "cat > /proc/{}/fd/0".format(pid)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-                process.stdin.write(packet.encode())
-                output, error = process.communicate(timeout=timeout)    
-                process.stdin.close()
-                process.wait()
-                self.socket.send(OPT_PIPE_STDIN.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
-
-            elif opt == OPT_PIPE_STDOUT:
-                pid = int.from_bytes(packet[:4], 'big')
-                timeout = int.from_bytes(packet[4:8], 'big')/1000
-                packet = packet[8:]
-                process = subprocess.Popen(["/bin/sh", "-c", "cat /proc/{}/fd/1".format(pid)], stdout=subprocess.PIPE)
-                output, error = process.communicate()
-                self.socket.send(OPT_PIPE_STDOUT.to_bytes(1, 'big') + output)
-
-            elif opt == OPT_FILE_TRUNCATE:
-                try:
-                    with open(packet.decode(), 'w') as file:
-                        pass
-                    
-                    self.socket.send(OPT_FILE_TRUNCATE.to_bytes(1, 'big') + b'\x01')
-                except Exception as e:
-                    traceback.print_exc()
-                    self.socket.send(OPT_FILE_TRUNCATE.to_bytes(1, 'big') + b'\x00')
-
-            elif opt == OPT_FILE_APPEND:
-                try:
-                    path = packet[:packet.index(b'\x00')].decode()
-                    packet = packet[packet.index(b'\x00')+1:]
-                    content = packet
-
-                    with open(path, 'ab') as file:
-                        file.write(content)
-                    
-                    file_size = os.path.getsize(path)
-                    self.socket.send(OPT_FILE_APPEND.to_bytes(1, 'big') + file_size.to_bytes(8, 'big'))
-                except Exception as e:
-                    traceback.print_exc()
-                    self.socket.send(OPT_FILE_APPEND.to_bytes(1, 'big') + b'\x00\x00\x00\x00\x00\x00\x00\x00')
-
-            elif opt == OPT_FILE_SIZE:
-                def get_file_length(file_path):
-                    if os.path.exists(file_path):
-                        return os.path.getsize(file_path)
-                    else:
-                        return -1
-
-                file_path = packet.decode()
-                file_length = get_file_length(file_path)
-                self.socket.send(OPT_FILE_SIZE.to_bytes(1, 'big') + file_length.to_bytes(8, 'big'))
-
-            elif opt == OPT_FILE_GET_CHUNK: 
-                # Receiving a file via this very slowdue to continuously reponeing the file
-                # There is a better way which can use stateful file transfer
-                # However that will be done seperately as this is ok as a bare bones solution
-                offset = int.from_bytes(packet[:8], 'big')
-                size = int.from_bytes(packet[8:16], 'big')
-                file_path = packet[16:].decode()
-
-                try:
-                    with open(file_path, 'rb') as file:
-                        file.seek(offset)
-                        chunk = file.read(size)
-                        self.socket.send(OPT_FILE_GET_CHUNK.to_bytes(1, 'big') + chunk)
-                except Exception as e:
-                    traceback.print_exc()
-                    self.socket.send(OPT_FILE_GET_CHUNK.to_bytes(1, 'big') + b'')
-
-            elif opt == OPT_FILE_OPEN:
-                offset = int.from_bytes(packet[:8], 'big')
-                file_path = packet[8:].decode()
-                if os.path.exists(file_path):
-                    _file_manager.open_file(file_path)
-                    self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + b'\x01')
+            try: # Make sure exceptions do not terminate the thread
+                if packet[0] == OPT_KEEP_ALIVE_REQ:
+                    print("OPT_KEEP_ALIVE_REQ", datetime.datetime.now())
+                    self.socket.send(OPT_KEEP_ALIVE_REP.to_bytes(1, 'big'))
+                elif packet[0] == OPT_KEEP_ALIVE_REP:
+                    print("OPT_KEEP_ALIVE_REP")
+                    continue # silently drop packet the last recv time has already been updated
                 else:
-                    self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + b'\x00')
-
-            elif opt == OPT_FILE_READ:
-                file_path = packet.decode()
-                if _file_manager.is_file_open(file_path):
-                    chunk = _file_manager.read_chunk(file_path, 1024)
-                    self.socket.send(OPT_FILE_READ.to_bytes(1, 'big') + chunk)
-                else:
-                    self.socket.send(OPT_FILE_READ.to_bytes(1, 'big') + b'')
-
-            elif opt == OPT_FILE_CLOSE:
-                file_path = packet.decode()
-                if _file_manager.is_file_open(file_path):
-                    _file_manager.close_file(file_path)
-                    self.socket.send(OPT_FILE_CLOSE.to_bytes(1, 'big') + b'\x01')
-                else:
-                    self.socket.send(OPT_FILE_CLOSE.to_bytes(1, 'big') + b'\x00')
-
-            elif opt == OPT_TUNNEL_COUNT:
-                tunnel_count = len(self.tunnels)
-                packet_size = tunnel_count.to_bytes(4, 'big')
-                self.socket.send(OPT_TUNNEL_COUNT.to_bytes(1, 'big') + packet_size)
+                    if _tunnel_mode == 'local':
+                        print("Received (queueing packet): "+ packet.decode())
+                        self.queue.put(packet)
+                        continue
+        
+                opt = packet[0]
+                packet = packet[1:]
                 
-            elif opt == OPT_TUNNEL_OPEN:
-                enc_mode = packet[0]
-                socket_mode = packet[1]
-                key_index = int.from_bytes(packet[2:4], 'big')
-                packet = packet[4:].decode()  # Remove the first 4 byte from the packet
+                # Switch case based on opt value
+                if opt == OPT_QUIT:
+                    _run = False
+                    break
+                
+                elif opt == OPT_PING:
+                    print("Ping: "+ packet.decode())
+                    self.socket.send(OPT_PING.to_bytes(1, 'big') + packet)
 
-                # Extract comma-separated values from the packet
-                address, port, enc_address, enc_port = packet.split(',')
+                elif opt == OPT_CLI:
+                    timeout = float(int.from_bytes(packet[:4], 'big'))/1000
+                    command = packet[4:].decode('utf-8')
+                    try:
+                        def run_command_with_timeout(command, timeout):
+                            print("Executing: "+ command + " with timeout: "+ str(timeout))
+                            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            try:
+                                output, error = process.communicate(timeout=timeout)
+                                return process.pid, output
+                            except subprocess.TimeoutExpired:
+                                return process.pid, None
 
-                # Use the extracted values as needed
-                print(f"Enc Mode: {enc_mode}")
-                print(f"Socket Mode: {socket_mode}")
-                print(f"Key Index: {key_index}")
-                print(f"Address: {address}")
-                print(f"Port: {port}")
-                print(f"Encrypted Address: {enc_address}") # this is the bind port in server mode
-                print(f"Encrypted Port: {enc_port}")
+                        pid, output = run_command_with_timeout(command, timeout)
+                        print("Stdin Output: "+ str(output))
+                        if output is not None:
+                            self.socket.send(OPT_CLI.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
+                        else:
+                            self.socket.send(OPT_CLI.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
 
-                tunnel = Tunnel(self.socket.encryption_keys, enc_mode, socket_mode)
-                tunnel.connect(key_index, address, int(port), enc_address, int(enc_port))
-                _tunnels.append(tunnel)
-                self.socket.send(OPT_TUNNEL_OPEN.to_bytes(1, 'big') + b'\x01')
-            
-            elif opt == OPT_TUNNEL_CLOSE:
-                tunnel_index = packet[0]
-                if tunnel_index >= len(self.tunnels):
-                    self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + b'\x00')
-                    continue
+                    except subprocess.CalledProcessError as e:
+                        error_message = str(e).encode('utf-8')
+                        self.socket.send(OPT_CLI.to_bytes(1, 'big') + error_message)
 
-                packet = packet[1:]
-                self.tunnels[tunnel_index].close()
-                self.tunnels.pop(tunnel_index)
-                self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + b'\x01')
+                elif opt == OPT_PIPE_STDIN:
+                    pid = int.from_bytes(packet[:4], 'big')
+                    timeout = int.from_bytes(packet[4:8], 'big')/1000
+                    packet = packet[8:].decode('unicode_escape')
+                    process = subprocess.Popen(["/bin/sh", "-c", "cat > /proc/{}/fd/0".format(pid)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                    process.stdin.write(packet.encode())
+                    output, error = process.communicate(timeout=timeout)    
+                    process.stdin.close()
+                    process.wait()
+                    self.socket.send(OPT_PIPE_STDIN.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
 
-            elif opt == OPT_TUNNEL_STATUS:
-                tunnel_index = packet[0]
-                if tunnel_index >= len(self.tunnels):
-                    self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + b'\x00')
-                    continue
+                elif opt == OPT_PIPE_STDOUT:
+                    pid = int.from_bytes(packet[:4], 'big')
+                    timeout = int.from_bytes(packet[4:8], 'big')/1000
+                    packet = packet[8:]
+                    process = subprocess.Popen(["/bin/sh", "-c", "cat /proc/{}/fd/1".format(pid)], stdout=subprocess.PIPE)
+                    output, error = process.communicate()
+                    self.socket.send(OPT_PIPE_STDOUT.to_bytes(1, 'big') + output)
 
-                packet = packet[1:]
-                tunnel = self.tunnels[tunnel_index]
-                encrypted_socket_state, socket_state = tunnel.status()
-                packet = ((encrypted_socket_state*2) + socket_state).to_bytes(4, 'big')
-                self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + packet)
-
-            elif opt == OPT_RELAY_START:
-                packet = packet.decode()
-                host1, port1, host2, port2 = packet.split(',')
-                try:
-                    relay = PacketRelay(host1, int(port1), host2, int(port2))
-                    relay.start()
-                    _relays.append(relay)
-                    self.socket.send(OPT_RELAY_START.to_bytes(1, 'big') + b'\x01')
-                except:
-                    self.socket.send(OPT_RELAY_START.to_bytes(1, 'big') + b'\x00')
-
-            elif opt == OPT_RELAY_LIST:
-                packet = len(_relays).to_bytes(4, 'big')
-                for relay in _relays:
-                    entry = len(relay.address1).to_bytes(1, 'big')
-                    entry += relay.address1.encode()
-                    entry += relay.port1.to_bytes(2, 'big')
-                    entry += len(relay.address2).to_bytes(1, 'big')
-                    entry += relay.address2.encode()
-                    entry += relay.port2.to_bytes(2, 'big')
-                    entry += relay.connected1.to_bytes(1, 'big')
-                    entry += relay.connected2.to_bytes(1, 'big')
-                    entry += relay.is_running.to_bytes(1, 'big')
-
-                    packet += entry
-
-                self.socket.send(OPT_RELAY_LIST.to_bytes(1, 'big') + packet)
-
-            elif opt == OPT_RELAY_STOP:
-                relay_index = packet[0]
-                if relay_index >= len(_relays):
-                    self.socket.send(OPT_RELAY_STOP.to_bytes(1, 'big') + b'\x00')
-                    continue
-
-                packet = packet[1:]
-                _relays[relay_index].close()
-                _relays.pop(relay_index)
-                self.socket.send(OPT_RELAY_STOP.to_bytes(1, 'big') + b'\x01')
-
-            elif opt == OPT_RELAY_STOPALL:
-                for relay in _relays:
-                    relay.close()
-                _relays.clear()
-                self.socket.send(OPT_RELAY_STOPALL.to_bytes(1, 'big') + b'\x01')
-
-            elif opt == OPT_FOLDER_INFO:
-                folder_path = packet.decode()
-                files = get_file_list(folder_path)
-                for file in files:
-                    creation_date = file['creation_date']
-                    changed_date = file['modified_date']
-                    sha256_hash = file['sha256_hash']
-                    file_name = file['name']
-                    file_size = file['file_size']
-
-                    creation_date_bytes = creation_date.to_bytes(8, 'big')
-                    changed_date_bytes = changed_date.to_bytes(8, 'big')
-                    hash_bytes = bytes.fromhex(sha256_hash)
-                    filename_length_bytes = len(file_name).to_bytes(2, 'big')
-                    filename_bytes = file_name.encode()
-                    file_size_bytes = file_size.to_bytes(8, 'big')
-
-                    packet = creation_date_bytes + changed_date_bytes + file_size_bytes + hash_bytes + filename_length_bytes + filename_bytes
+                elif opt == OPT_FILE_TRUNCATE:
+                    try:
+                        with open(packet.decode(), 'w') as file:
+                            pass
                         
-                    self.socket.send(OPT_FOLDER_INFO.to_bytes(1, 'big') + packet)
+                        self.socket.send(OPT_FILE_TRUNCATE.to_bytes(1, 'big') + b'\x01')
+                    except Exception as e:
+                        traceback.print_exc()
+                        self.socket.send(OPT_FILE_TRUNCATE.to_bytes(1, 'big') + b'\x00')
 
-            else:
-                pass
+                elif opt == OPT_FILE_APPEND:
+                    try:
+                        path = packet[:packet.index(b'\x00')].decode()
+                        packet = packet[packet.index(b'\x00')+1:]
+                        content = packet
+
+                        with open(path, 'ab') as file:
+                            file.write(content)
+                        
+                        file_size = os.path.getsize(path)
+                        self.socket.send(OPT_FILE_APPEND.to_bytes(1, 'big') + file_size.to_bytes(8, 'big'))
+                    except Exception as e:
+                        traceback.print_exc()
+                        self.socket.send(OPT_FILE_APPEND.to_bytes(1, 'big') + b'\x00\x00\x00\x00\x00\x00\x00\x00')
+
+                elif opt == OPT_FILE_SIZE:
+                    def get_file_length(file_path):
+                        if os.path.exists(file_path):
+                            return os.path.getsize(file_path)
+                        else:
+                            return -1
+
+                    file_path = packet.decode()
+                    file_length = get_file_length(file_path)
+                    self.socket.send(OPT_FILE_SIZE.to_bytes(1, 'big') + file_length.to_bytes(8, 'big'))
+
+                elif opt == OPT_FILE_GET_CHUNK: 
+                    # Receiving a file via this very slowdue to continuously reponeing the file
+                    # There is a better way which can use stateful file transfer
+                    # However that will be done seperately as this is ok as a bare bones solution
+                    offset = int.from_bytes(packet[:8], 'big')
+                    size = int.from_bytes(packet[8:16], 'big')
+                    file_path = packet[16:].decode()
+
+                    try:
+                        with open(file_path, 'rb') as file:
+                            file.seek(offset)
+                            chunk = file.read(size)
+                            self.socket.send(OPT_FILE_GET_CHUNK.to_bytes(1, 'big') + chunk)
+                    except Exception as e:
+                        traceback.print_exc()
+                        self.socket.send(OPT_FILE_GET_CHUNK.to_bytes(1, 'big') + b'')
+
+                elif opt == OPT_FILE_OPEN:
+                    offset = int.from_bytes(packet[:8], 'big')
+                    file_path = packet[8:].decode()
+                    if os.path.exists(file_path):
+                        _file_manager.open_file(file_path)
+                        self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + b'\x01')
+                    else:
+                        self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + b'\x00')
+
+                elif opt == OPT_FILE_READ:
+                    file_path = packet.decode()
+                    if _file_manager.is_file_open(file_path):
+                        chunk = _file_manager.read_chunk(file_path, 1024)
+                        self.socket.send(OPT_FILE_READ.to_bytes(1, 'big') + chunk)
+                    else:
+                        self.socket.send(OPT_FILE_READ.to_bytes(1, 'big') + b'')
+
+                elif opt == OPT_FILE_CLOSE:
+                    file_path = packet.decode()
+                    if _file_manager.is_file_open(file_path):
+                        _file_manager.close_file(file_path)
+                        self.socket.send(OPT_FILE_CLOSE.to_bytes(1, 'big') + b'\x01')
+                    else:
+                        self.socket.send(OPT_FILE_CLOSE.to_bytes(1, 'big') + b'\x00')
+
+                elif opt == OPT_TUNNEL_COUNT:
+                    tunnel_count = len(self.tunnels)
+                    packet_size = tunnel_count.to_bytes(4, 'big')
+                    self.socket.send(OPT_TUNNEL_COUNT.to_bytes(1, 'big') + packet_size)
+                    
+                elif opt == OPT_TUNNEL_OPEN:
+                    enc_mode = packet[0]
+                    socket_mode = packet[1]
+                    key_index = int.from_bytes(packet[2:4], 'big')
+                    packet = packet[4:].decode()  # Remove the first 4 byte from the packet
+
+                    # Extract comma-separated values from the packet
+                    address, port, enc_address, enc_port = packet.split(',')
+
+                    # Use the extracted values as needed
+                    print(f"Enc Mode: {enc_mode}")
+                    print(f"Socket Mode: {socket_mode}")
+                    print(f"Key Index: {key_index}")
+                    print(f"Address: {address}")
+                    print(f"Port: {port}")
+                    print(f"Encrypted Address: {enc_address}") # this is the bind port in server mode
+                    print(f"Encrypted Port: {enc_port}")
+
+                    tunnel = Tunnel(self.socket.encryption_keys, enc_mode, socket_mode)
+                    tunnel.connect(key_index, address, int(port), enc_address, int(enc_port))
+                    _tunnels.append(tunnel)
+                    self.socket.send(OPT_TUNNEL_OPEN.to_bytes(1, 'big') + b'\x01')
+                
+                elif opt == OPT_TUNNEL_CLOSE:
+                    tunnel_index = packet[0]
+                    if tunnel_index >= len(self.tunnels):
+                        self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + b'\x00')
+                        continue
+
+                    packet = packet[1:]
+                    self.tunnels[tunnel_index].close()
+                    self.tunnels.pop(tunnel_index)
+                    self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + b'\x01')
+
+                elif opt == OPT_TUNNEL_STATUS:
+                    tunnel_index = packet[0]
+                    if tunnel_index >= len(self.tunnels):
+                        self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + b'\x00')
+                        continue
+
+                    packet = packet[1:]
+                    tunnel = self.tunnels[tunnel_index]
+                    encrypted_socket_state, socket_state = tunnel.status()
+                    packet = ((encrypted_socket_state*2) + socket_state).to_bytes(4, 'big')
+                    self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + packet)
+
+                elif opt == OPT_RELAY_START:
+                    packet = packet.decode()
+                    host1, port1, host2, port2 = packet.split(',')
+                    try:
+                        relay = PacketRelay(host1, int(port1), host2, int(port2))
+                        relay.start()
+                        _relays.append(relay)
+                        self.socket.send(OPT_RELAY_START.to_bytes(1, 'big') + b'\x01')
+                    except:
+                        self.socket.send(OPT_RELAY_START.to_bytes(1, 'big') + b'\x00')
+
+                elif opt == OPT_RELAY_LIST:
+                    packet = len(_relays).to_bytes(4, 'big')
+                    for relay in _relays:
+                        entry = len(relay.address1).to_bytes(1, 'big')
+                        entry += relay.address1.encode()
+                        entry += relay.port1.to_bytes(2, 'big')
+                        entry += len(relay.address2).to_bytes(1, 'big')
+                        entry += relay.address2.encode()
+                        entry += relay.port2.to_bytes(2, 'big')
+                        entry += relay.connected1.to_bytes(1, 'big')
+                        entry += relay.connected2.to_bytes(1, 'big')
+                        entry += relay.is_running.to_bytes(1, 'big')
+
+                        packet += entry
+
+                    self.socket.send(OPT_RELAY_LIST.to_bytes(1, 'big') + packet)
+
+                elif opt == OPT_RELAY_STOP:
+                    relay_index = packet[0]
+                    if relay_index >= len(_relays):
+                        self.socket.send(OPT_RELAY_STOP.to_bytes(1, 'big') + b'\x00')
+                        continue
+
+                    packet = packet[1:]
+                    _relays[relay_index].close()
+                    _relays.pop(relay_index)
+                    self.socket.send(OPT_RELAY_STOP.to_bytes(1, 'big') + b'\x01')
+
+                elif opt == OPT_RELAY_STOPALL:
+                    for relay in _relays:
+                        relay.close()
+                    _relays.clear()
+                    self.socket.send(OPT_RELAY_STOPALL.to_bytes(1, 'big') + b'\x01')
+
+                elif opt == OPT_FOLDER_INFO:
+                    folder_path = packet.decode()
+                    files = get_file_list(folder_path)
+                    for file in files:
+                        creation_date = file['creation_date']
+                        changed_date = file['modified_date']
+                        sha256_hash = file['sha256_hash']
+                        file_name = file['name']
+                        file_size = file['file_size']
+
+                        creation_date_bytes = creation_date.to_bytes(8, 'big')
+                        changed_date_bytes = changed_date.to_bytes(8, 'big')
+                        hash_bytes = bytes.fromhex(sha256_hash)
+                        filename_length_bytes = len(file_name).to_bytes(2, 'big')
+                        filename_bytes = file_name.encode()
+                        file_size_bytes = file_size.to_bytes(8, 'big')
+
+                        packet = creation_date_bytes + changed_date_bytes + file_size_bytes + hash_bytes + filename_length_bytes + filename_bytes
+                            
+                        self.socket.send(OPT_FOLDER_INFO.to_bytes(1, 'big') + packet)
+
+                else:
+                    pass
+
+            except Exception as e:
+                traceback.print_exc()
 
     def keepAlive(self):
         self.socket.send(OPT_KEEP_ALIVE_REQ.to_bytes(1, 'big'))

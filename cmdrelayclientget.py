@@ -24,6 +24,8 @@ _, _, _, _, enc_keys = load_config(args.config)
 client = HTTPCommandRelayClient(url)
 
 res = client.get_channel(args.channel)
+print(res)
+
 key_index, payload = res.split(':')  # Splitting res into key index and payload
 
 key = enc_keys[int(key_index)].key
