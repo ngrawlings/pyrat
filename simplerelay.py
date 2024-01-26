@@ -17,7 +17,6 @@ server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 # Bind the socket to a specific address and port
 host = '0.0.0.0'
-port = 44220 
 server_socket.bind((host, port))
 
 # Listen for incoming connections
@@ -86,7 +85,7 @@ while True:
                     for socket in sockets_list:
                         if socket != server_socket:
                             socket.close()
-                            
+
                     sockets_list.clear()
 
             except Exception:
