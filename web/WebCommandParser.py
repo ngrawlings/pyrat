@@ -1,4 +1,4 @@
-import sys
+import os
 import threading
 import time
 from web.CmdRelay import get_channel
@@ -11,6 +11,7 @@ class WebCommandParser(threading.Thread):
         self.channel = channel
         self.enc_keys = enc_keys
         self._stop_event = threading.Event()
+        self.callback = None  # Initialize callback attribute
 
     def run(self):
         while not self._stop_event.is_set():
@@ -22,7 +23,11 @@ class WebCommandParser(threading.Thread):
                     cmd_json = json.loads(cmd)
                     
                     if cmd_json["cmd"] == "exit":
-                        sys.exit()
+                        print("Http Fallback: Exiting...")
+                        os._exit(0)
+
+                    elif self.callback is not None:
+                        self.callback(self.enc_keys, cmd_json)
 
                 except json.JSONDecodeError:
                     print("Invalid JSON format")
@@ -31,3 +36,7 @@ class WebCommandParser(threading.Thread):
 
     def stop(self):
         self._stop_event.set()
+
+    def set_callback(self, callback):
+        self.callback = callback
+

