@@ -1,8 +1,6 @@
 import os
 import threading
 import argparse
-import json
-from utils.SocketMonitor import SocketMonitor
 from utils.EncryptedSocket import EncryptedSocket, EncryptionParams
 from utils.Relay import PacketRelay
 from utils.Tunnel import Tunnel, Mode as TunnelMode
@@ -17,7 +15,7 @@ import random
 import subprocess
 import signal
 from collections import deque
-from utils.utils import get_file_list
+from utils.utils import load_config, get_file_list
 import queue
 import socket
 from datetime import datetime
@@ -57,8 +55,6 @@ _file_manager = FileManager()
 _relays = []
 
 _selected_socket = None
-
-_socket_monitor = SocketMonitor()
 
 macros = Macros("macros.json")
 
@@ -726,13 +722,21 @@ class ConnectionMonitorThread(threading.Thread):
                 if self.socket_mode == 'server' and len(_socket_threads) < 8:
                     encrypted_socket.accept(self._server_socket)
                 elif self.socket_mode == 'inverted':
+                    encrypted_socket.settimeout(300)
+
                     if not encrypted_socket.connectAsServer(self.host, self.port, 900):
                         continue
+
+                    encrypted_socket.settimeout(None)
                 else:
+                    encrypted_socket.settimeout(300)
+
                     key_len = len(self.enc_keys) 
                     randorandom_key_index = random.randint(0, key_len)
                     print("Using key: "+ str(randorandom_key_index))
                     encrypted_socket.connect(self.host, self.port, randorandom_key_index)
+
+                    encrypted_socket.settimeout(None)
 
                 self._socket_thread = SocketThread(encrypted_socket)
                 self._socket_thread.start()
@@ -1043,37 +1047,6 @@ class ConsoleThread(threading.Thread):
             except Exception as e:
                 print(str(e))
                 traceback.print_exc()
-
-def load_config(file_path):
-    connections = []
-    relays = []
-    enc_keys = []
-
-    with open(file_path, 'r') as file:
-        data = json.load(file)
-
-        tunnel_mode = data['tunnel_mode']
-
-        for connection in data['connections']:
-            host = connection['host']
-            port = int(connection['port'])
-            socket_mode = connection['socket_mode']
-            connections.append((host, port, socket_mode))
-
-        for relay in data['relays']:
-            host1 = relay['host1']
-            port1 = int(relay['port1'])
-            host2 = relay['host2']
-            port2 = int(relay['port2'])
-            relays.append((host1, port1, host2, port2))
-
-        for item in data['keys']:
-            key = item['key']
-            iv = item['iv']
-            encryption_param = EncryptionParams(key, iv)
-            enc_keys.append(encryption_param)
-
-    return tunnel_mode, connections, relays, enc_keys
 
 # Define a signal handler for SIGINT (Control+C)
 def signal_handler(sig, frame):
