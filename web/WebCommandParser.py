@@ -1,15 +1,16 @@
 import os
 import threading
 import time
-from web.CmdRelay import get_channel
+from web.CmdRelay import get_channel, set_channel
 import json
 
 class WebCommandParser(threading.Thread):
-    def __init__(self, url, channel, enc_keys):
+    def __init__(self, url, channel, enc_keys, status_channel=None):
         super().__init__()
         self.url = url
         self.channel = channel
         self.enc_keys = enc_keys
+        self.status_channel = status_channel
         self._stop_event = threading.Event()
         self.callback = None  # Initialize callback attribute
 
@@ -39,4 +40,14 @@ class WebCommandParser(threading.Thread):
 
     def set_callback(self, callback):
         self.callback = callback
+
+    def getURL(self):
+        return self.url
+
+    def getChannel(self):
+        return self.channel
+    
+    def getStatusChannel(self):
+        return self.status_channel
+    
 

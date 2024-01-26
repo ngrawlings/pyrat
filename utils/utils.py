@@ -33,7 +33,8 @@ def load_config(file_path):
             for fallback in data['http_fallback']:
                 url = fallback['url']
                 channel = fallback['channel']
-                http_fallbacks.append((url, channel))
+                status_channel = fallback['status_channel']
+                http_fallbacks.append((url, channel, status_channel))
 
         for item in data['keys']:
             key = item['key']
