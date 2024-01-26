@@ -871,7 +871,7 @@ class ConsoleThread(threading.Thread):
                     print(result)
 
                 elif parts[0] == "con.connect":
-                    con_thread = ConnectionMonitorThread(tunnel_mode, parts[1], parts[2], int(parts[3]), enc_keys)
+                    con_thread = ConnectionMonitorThread(_tunnel_mode, parts[1], parts[2], int(parts[3]), enc_keys)
                     con_thread.start()
                     _connection_monitor_threads.append(con_thread)
 
