@@ -20,7 +20,24 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-type', 'text/plain')
                 self.end_headers()
-                self.wfile.write(channels[channel_id].encode())
+                last_value = channels[channel_id][-1]
+                self.wfile.write(last_value.encode())
+            else:
+                self.send_response(404)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'Channel not found')
+        elif len(path_parts) == 3 and path_parts[1] == 'getall':
+            channel_id = path_parts[2]
+            if channel_id in channels:
+                self.send_response(200)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                output = ""
+                for data in channels[channel_id]:
+                    output += data + "\n"
+                print(output)
+                self.wfile.write(output.encode())
             else:
                 self.send_response(404)
                 self.send_header('Content-type', 'text/plain')
@@ -35,7 +52,13 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
             channel_id = path_parts[3]
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
-            channels[channel_id] = post_data
+            if not channel_id in channels:
+                channels[channel_id] = [post_data]
+            else:
+                if (len(channels[channel_id]) >= 100):
+                    channels[channel_id] = channels[channel_id][1:]
+
+                channels[channel_id].append(post_data)
 
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')
@@ -76,6 +99,14 @@ class HTTPCommandRelayClient:
 
     def get_channel(self, channel_id):
         url = f"{self.server_url}/get/{channel_id}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.text
+        else:
+            return None
+        
+    def get_channel_all(self, channel_id):
+        url = f"{self.server_url}/getall/{channel_id}"
         response = requests.get(url)
         if response.status_code == 200:
             return response.text

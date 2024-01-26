@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser(description='Command Line Arguments')
 parser.add_argument('--url', type=str, help='URL argument')
 parser.add_argument('--config', type=str, help='Config file to load')
 parser.add_argument('--channel', type=str, help='Command to specific channel')
+parser.add_argument('--all', type=str, help='Get all entries from channel')
 
 # Parse the command line arguments
 args = parser.parse_args()
@@ -23,24 +24,31 @@ _, _, _, _, enc_keys = load_config(args.config)
 # Use the parsed arguments in your code
 client = HTTPCommandRelayClient(url)
 
-res = client.get_channel(args.channel)
-print(res)
+if (args.all is not None):
+    res = client.get_channel_all(args.channel)
+else:
+    res = client.get_channel(args.channel)
 
-key_index, payload = res.split(':')  # Splitting res into key index and payload
+# Split the response by new line characters into an array
+res_array = res.splitlines()
 
-key = enc_keys[int(key_index)].key
-iv = enc_keys[int(key_index)].vector
+# Iterate over the res_array
+for item in res_array:
+    key_index, payload = item.split(':')  # Splitting item into key index and payload
 
-decoded_data = base64.b64decode(payload)
+    key = enc_keys[int(key_index)].key
+    iv = enc_keys[int(key_index)].vector
 
-cipher = AES.new(key, AES.MODE_CBC, iv)
-decrypted_cmd = cipher.decrypt(decoded_data)
-unpadded_cmd = unpad(decrypted_cmd, AES.block_size)
+    decoded_data = base64.b64decode(payload)
 
-hashed_cmd = unpadded_cmd[:32]
-cmd = unpadded_cmd[32:].decode('utf-8')
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    decrypted_cmd = cipher.decrypt(decoded_data)
+    unpadded_cmd = unpad(decrypted_cmd, AES.block_size)
 
-if hashed_cmd == hashlib.sha256(cmd.encode()).digest():
-    print("Hashes match")
-    print("Executing command: " + cmd)
+    hashed_cmd = unpadded_cmd[:32]
+    cmd = unpadded_cmd[32:].decode('utf-8')
+
+    if hashed_cmd == hashlib.sha256(cmd.encode()).digest():
+        print(cmd)
+
     
