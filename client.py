@@ -19,6 +19,7 @@ from utils.utils import load_config, get_file_list
 import queue
 import socket
 from datetime import datetime
+from web.WebCommandParser import WebCommandParser
 
 OPT_QUIT = 0xFF
 OPT_PING = 0x01
@@ -53,6 +54,7 @@ _socket_threads = []
 _tunnels = []
 _file_manager = FileManager()
 _relays = []
+_http_fallbacks = []
 
 _selected_socket = None
 
@@ -1068,7 +1070,7 @@ def main():
     parser.add_argument('config', type=str, help='Config file')
     args = parser.parse_args()
 
-    _tunnel_mode, connections, relays, enc_keys = load_config(args.config)
+    _tunnel_mode, connections, relays, http_fallbacks, enc_keys = load_config(args.config)
 
     for relay in relays:
         host1, port1, host2, port2 = relay
@@ -1083,6 +1085,11 @@ def main():
         con_thread = ConnectionMonitorThread(_tunnel_mode, socket_mode, host, port, enc_keys)
         con_thread.start()
         _connection_monitor_threads.append(con_thread)
+
+    for http_fallback in http_fallbacks:
+        wcp = WebCommandParser(http_fallback, 'remote', enc_keys)
+        wcp.start()
+        _http_fallbacks.append(wcp)
         
     if len(_socket_threads) > 0:
         _selected_socket = _socket_threads[0]

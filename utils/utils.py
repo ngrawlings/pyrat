@@ -7,6 +7,7 @@ from utils.EncryptedSocket import EncryptionParams
 def load_config(file_path):
     connections = []
     relays = []
+    http_fallbacks = []
     enc_keys = []
 
     with open(file_path, 'r') as file:
@@ -27,13 +28,16 @@ def load_config(file_path):
             port2 = int(relay['port2'])
             relays.append((host1, port1, host2, port2))
 
+        for fallback in data['http_fallback']:
+            http_fallbacks.append(fallback)
+
         for item in data['keys']:
             key = item['key']
             iv = item['iv']
             encryption_param = EncryptionParams(key, iv)
             enc_keys.append(encryption_param)
 
-    return tunnel_mode, connections, relays, enc_keys
+    return tunnel_mode, connections, relays, http_fallbacks, enc_keys
 
 def get_file_list(directory):
     file_list = []

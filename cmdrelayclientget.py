@@ -18,7 +18,7 @@ args = parser.parse_args()
 # Access the parsed arguments
 url = args.url
 
-_, _, _, enc_keys = load_config(args.config)
+_, _, _, _, enc_keys = load_config(args.config)
 
 # Use the parsed arguments in your code
 client = HTTPCommandRelayClient(url)
