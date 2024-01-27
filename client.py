@@ -1086,7 +1086,7 @@ class ConsoleThread(threading.Thread):
                     else:
                         print("Failed to stop relay")
 
-                elif parts[0 == "repo.info"]:
+                elif parts[0] == "repo.info":
                     commit_hash, commit_date = _selected_socket.gitRepoInfo()
                     if commit_hash is not None and commit_date is not None:
                         print(commit_hash)
