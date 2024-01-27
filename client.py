@@ -72,6 +72,21 @@ _heart_beat_thread = None
 
 macros = Macros("macros.json")
 
+class QueuedPacket():
+    def __init__(self, opt, packet):
+        self._opt = opt
+        self._packet = packet
+        self._timestamp = datetime.datetime.now()  # Set the timestamp
+
+    def opt(self):
+        return self._opt
+    
+    def packet(self):
+        return self._packet
+    
+    def timestamp(self):
+        return self._timestamp
+
 class SocketThread(threading.Thread):
 
     _con_run = True
@@ -124,7 +139,8 @@ class SocketThread(threading.Thread):
                     continue # silently drop packet the last recv time has already been updated
                 else:
                     if _tunnel_mode == 'local':
-                        self.queue.put(packet)
+                        qp = QueuedPacket(packet[0], packet[1:])
+                        self.queue.put(qp)
                         continue
         
                 opt = packet[0]
@@ -393,6 +409,34 @@ class SocketThread(threading.Thread):
             except Exception as e:
                 traceback.print_exc()
 
+    def _receive(self, expected_command):
+        initial_timestamp = time.time()
+        ret = None
+
+        print("_receive: "+ str(expected_command) + " - "+ str(self.queue.queue))
+
+        while True:
+            for packet in self.queue.queue:
+                if packet.opt() == expected_command:
+                    self.queue.queue.remove(packet)
+                    ret = packet.packet()
+                    break
+                
+            current_timestamp = time.time()
+            if current_timestamp - initial_timestamp > 5:
+                break
+
+            time.sleep(0.25)
+
+        for packet in self.queue.queue:
+            if packet.timestamp() < time.time() - 15:
+                self.queue.queue.remove(packet)
+
+        if not ret:
+            print(f"Expected command {expected_command} not found in the queue.")
+
+        return ret
+
     def keepAlive(self):
         self.socket.send(OPT_KEEP_ALIVE_REQ.to_bytes(1, 'big'))
 
@@ -405,44 +449,18 @@ class SocketThread(threading.Thread):
     def ping(self, data):
         print("Pinging : "+ data)
         self.socket.send(OPT_PING.to_bytes(1, 'big') + data.encode())
-        packet = self.queue.get()
-        if not packet:
-            return
-        
-        opt = packet[0]
-        if opt != OPT_PING:
-            print("Wrong reply")
-
-        data = packet[1:]
-        return data.decode()
+        return self._receive(OPT_PING).decode()
     
     def cmd(self, command, timeout_millis=15000):
         timeout_bytes = timeout_millis.to_bytes(4, 'big')
         self.socket.send(OPT_CLI.to_bytes(1, 'big') + timeout_bytes + command.encode())
-        packet = self.queue.get()
-        if not packet:
-            return
-        
-        opt = packet[0]
-        if opt != OPT_CLI:
-            print("Wrong reply")
-
-        data = packet[1:]
-        return data.decode()
+        return self._receive(OPT_CLI).decode()
     
     def cmdStdIn(self, pid, data, timeout_millis=15000):
         pid_bytes = pid.to_bytes(4, 'big')
         self.socket.send(OPT_PIPE_STDIN.to_bytes(1, 'big') + timeout_millis.to_bytes(4, 'big') + pid_bytes + data)
-        packet = self.queue.get()
-        if not packet:
-            return
-        
-        opt = packet[0]
-        if opt != OPT_PIPE_STDIN:
-            print("Wrong reply")
-
-        status = packet[1]
-        if status == 0:
+        status = self._receive(OPT_CLI)
+        if status[0] == 0:
             return False
         else:
             return True
@@ -450,60 +468,41 @@ class SocketThread(threading.Thread):
     def cmdStdOut(self, pid, timeout_millis=15000):
         pid_bytes = pid.to_bytes(4, 'big')
         self.socket.send(OPT_PIPE_STDOUT.to_bytes(1, 'big') + timeout_millis.to_bytes(4, 'big') + pid_bytes)
-        packet = self.queue.get()
+        packet = self._receive(OPT_PIPE_STDOUT)
         if not packet:
-            return
-        
-        opt = packet[0]
-        if opt != OPT_PIPE_STDOUT:
-            print("Wrong reply")
-
-        data = packet[1:]
-        return data.decode()
+            return packet.decode()
+        return None
 
     def fileTruncate(self, file_path):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_TRUNCATE.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.queue.get()
-        if not packet:
-            return
-        
-        opt = packet[0]
-        if opt != OPT_FILE_TRUNCATE:
-            print("Wrong reply")
-
-        status = packet[1]
-        if status == 0:
-            return False
-        else:
-            return True
+        packet = self._receive(OPT_FILE_TRUNCATE)
+        if packet:
+            status = packet[0]
+            if status == 0:
+                return False
+            else:
+                return True
+        return None
     
     def sendFileAppend(self, file_path, data):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_APPEND.to_bytes(1, 'big') + file_path_bytes + b'\x00' + data)
-        packet = self.queue.get()
+        packet = self._receive(OPT_FILE_APPEND)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_FILE_APPEND:
-            print("Wrong reply")
-
-        data_bytes = packet[1:9]  # Get the 8 bytes from the packet
+        data_bytes = packet[0:8]  # Get the 8 bytes from the packet
         return int.from_bytes(data_bytes, 'big')  # Convert bytes to int
     
     def fileSize(self, file_path):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_SIZE.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.queue.get()
+        packet = self._receive(OPT_FILE_SIZE)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_FILE_SIZE:
-            print("Wrong reply")
-
-        data_bytes = packet[1:9]
+        data_bytes = packet[0:8]
         file_size = int.from_bytes(data_bytes, 'big')
         return file_size
     
@@ -512,30 +511,21 @@ class SocketThread(threading.Thread):
         offset_bytes = offset.to_bytes(8, 'big')
         size_bytes = size.to_bytes(8, 'big')
         self.socket.send(OPT_FILE_GET_CHUNK.to_bytes(1, 'big') + offset_bytes + size_bytes + file_path_bytes)
-        packet = self.queue.get()
+        packet = self._receive(OPT_FILE_GET_CHUNK)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_FILE_GET_CHUNK:
-            print("Wrong reply")
-
-        data = packet[1:]
-        return data
+        return packet
     
     def openFile(self, file_path, offset=0):
         offset_bytes = offset.to_bytes(8, 'big')
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_OPEN.to_bytes(1, 'big') + offset_bytes + file_path_bytes)
-        packet = self.queue.get()
+        packet = self._receive(OPT_FILE_OPEN)
         if not packet:
             return
-        
-        opt = packet[0]
-        if opt != OPT_FILE_OPEN:
-            print("Wrong reply")
 
-        status = packet[1]
+        status = packet[0]
         if status == 0:
             return False
         else:
@@ -544,29 +534,20 @@ class SocketThread(threading.Thread):
     def readFile(self, file_path): 
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_READ.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.queue.get()
+        packet = self._receive(OPT_FILE_READ)
         if not packet:
             return
-        
-        opt = packet[0]
-        if opt != OPT_FILE_READ:
-            print("Wrong reply")
 
-        data = packet[1:]
-        return data
+        return packet
     
     def closeFile(self, file_path):
         file_path_bytes = file_path.encode()
         self.socket.send(OPT_FILE_CLOSE.to_bytes(1, 'big') + file_path_bytes)
-        packet = self.queue.get()
+        packet = self._receive(OPT_FILE_CLOSE)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_FILE_CLOSE:
-            print("Wrong reply")
-
-        status = packet[1]
+        status = packet[0]
         if status == 0:
             return False
         else:
@@ -574,15 +555,11 @@ class SocketThread(threading.Thread):
 
     def openTunnel(self, enc_mode, socket_mode, key_index, address, port, enc_address, enc_port):
         self.socket.send(OPT_TUNNEL_OPEN.to_bytes(1, 'big') + enc_mode.to_bytes(1, 'big') + socket_mode.to_bytes(1, 'big') + key_index.to_bytes(2, 'big') + (address +","+ str(port) +","+ enc_address +","+ str(enc_port)).encode())
-        packet = self.queue.get()
+        packet = self._receive(OPT_TUNNEL_OPEN)
         if not packet:
             return
-        
-        opt = packet[0]
-        if opt != OPT_TUNNEL_OPEN:
-            print("Wrong reply")
 
-        status = packet[1]
+        status = packet[0]
         if status == 0:
             return False
         else:
@@ -590,15 +567,11 @@ class SocketThread(threading.Thread):
 
     def closeTunnel(self, tunnel_index):
         self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + tunnel_index.to_bytes(1, 'big'))
-        packet = self.queue.get()
+        packet = self._receive(OPT_TUNNEL_CLOSE)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_TUNNEL_CLOSE:
-            print("Wrong reply")
-
-        status = packet[1]
+        status = packet[0]
         if status == 0:
             return False
         else:
@@ -606,28 +579,19 @@ class SocketThread(threading.Thread):
         
     def tunnelStatus(self, tunnel_index):
         self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + tunnel_index.to_bytes(1, 'big'))
-        packet = self.queue.get()
+        packet = self._receive(OPT_TUNNEL_STATUS)
         if not packet:
             return
-        
-        opt = packet[0]
-        if opt != OPT_TUNNEL_STATUS:
-            print("Wrong reply")
 
-        data = packet[1:]
-        return data
+        return packet
     
     def startRelay(self, host1, port1, host2, port2):
         self.socket.send(OPT_RELAY_START.to_bytes(1, 'big') + (host1 +","+ str(port1) +","+ host2 +","+ str(port2)).encode())
-        packet = self.queue.get()
+        packet = self._receive(OPT_RELAY_START)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_RELAY_START:
-            print("Wrong reply")
-
-        status = packet[1]
+        status = packet[0]
         if status == 0:
             return False
         else:
@@ -635,27 +599,21 @@ class SocketThread(threading.Thread):
         
     def listRelays(self):
         self.socket.send(OPT_RELAY_LIST.to_bytes(1, 'big'))
-        packet = self.queue.get()
+        packet = self._receive(OPT_RELAY_LIST)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_RELAY_LIST:
-            print("Wrong reply")
-
-        data = packet[1:]
-
         relays = []
 
-        host1_len = data[0]
-        host1 = data[1:host1_len+1].decode()
-        port1 = int.from_bytes(data[host1_len+1:host1_len+3], 'big')
-        host2_len = data[host1_len+3]
-        host2 = data[host1_len+4:host1_len+4+host2_len].decode()
-        port2 = int.from_bytes(data[host1_len+4+host2_len:host1_len+6+host2_len], 'big')
-        connected1 = data[host1_len+6+host2_len]
-        connected2 = data[host1_len+7+host2_len]
-        is_running = data[host1_len+8+host2_len]
+        host1_len = packet[0]
+        host1 = packet[1:host1_len+1].decode()
+        port1 = int.from_bytes(packet[host1_len+1:host1_len+3], 'big')
+        host2_len = packet[host1_len+3]
+        host2 = packet[host1_len+4:host1_len+4+host2_len].decode()
+        port2 = int.from_bytes(packet[host1_len+4+host2_len:host1_len+6+host2_len], 'big')
+        connected1 = packet[host1_len+6+host2_len]
+        connected2 = packet[host1_len+7+host2_len]
+        is_running = packet[host1_len+8+host2_len]
 
         relays.append((host1, port1, host2, port2, connected1, connected2, is_running))
 
@@ -663,15 +621,11 @@ class SocketThread(threading.Thread):
     
     def stopRelay(self, relay_index):
         self.socket.send(OPT_RELAY_STOP.to_bytes(1, 'big') + relay_index.to_bytes(1, 'big'))
-        packet = self.queue.get()
+        packet = self._receive(OPT_RELAY_STOP)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_RELAY_STOP:
-            print("Wrong reply")
-
-        status = packet[1]
+        status = packet[0]
         if status == 0:
             return False
         else:
@@ -679,15 +633,11 @@ class SocketThread(threading.Thread):
         
     def stopAllRelays(self):
         self.socket.send(OPT_RELAY_STOPALL.to_bytes(1, 'big'))
-        packet = self.queue.get()
+        packet = self._receive(OPT_RELAY_STOPALL)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_RELAY_STOPALL:
-            print("Wrong reply")
-
-        status = packet[1]
+        status = packet[0]
         if status == 0:
             return False
         else:
@@ -695,26 +645,21 @@ class SocketThread(threading.Thread):
         
     def folderChecksums(self, folder_path):
         self.socket.send(OPT_FOLDER_INFO.to_bytes(1, 'big') + folder_path.encode())
-        packet = self.queue.get()
+        packet = self._receive(OPT_FOLDER_INFO)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_FOLDER_INFO:
-            print("Wrong reply")
-
-        data = packet[1:]
         offset = 0
         ret = []
 
-        while offset < len(data):
-            creation_bytes = data[offset:offset+8]  # Extract 8 bytes for creation data
-            change_bytes = data[offset+8:offset+16]  # Extract 8 bytes for change data
-            size_bytes = data[offset+16:offset+24]  # Extract 8 bytes for file size
+        while offset < len(packet):
+            creation_bytes = packet[offset:offset+8]  # Extract 8 bytes for creation data
+            change_bytes = packet[offset+8:offset+16]  # Extract 8 bytes for change data
+            size_bytes = packet[offset+16:offset+24]  # Extract 8 bytes for file size
             
-            hash_bytes = data[offset+24:offset+56]  # Extract 32 bytes of the hash
-            filename_length = int.from_bytes(data[offset+56:offset+58], 'big')  # Extract 2 bytes for filename length
-            filename = data[offset+58:offset+58+filename_length].decode()  # Extract the filename
+            hash_bytes = packet[offset+24:offset+56]  # Extract 32 bytes of the hash
+            filename_length = int.from_bytes(packet[offset+56:offset+58], 'big')  # Extract 2 bytes for filename length
+            filename = packet[offset+58:offset+58+filename_length].decode()  # Extract the filename
             offset += 58+filename_length
 
             creation_date = int.from_bytes(creation_bytes, 'big')
@@ -727,20 +672,14 @@ class SocketThread(threading.Thread):
     
     def gitRepoInfo(self):
         self.socket.send(OPT_GIT_REPO_INFO.to_bytes(1, 'big'))
-        packet = self.queue.get()
+        packet = self._receive(OPT_GIT_REPO_INFO)
         if not packet:
             return
         
-        opt = packet[0]
-        if opt != OPT_GIT_REPO_INFO:
-            print("Wrong reply")
-
-        data = packet[1:]
-
-        hash_len = data[0]
-        commit_hash = data[1:hash_len+1].decode()
-        date_len = data[hash_len+1]
-        commit_date = data[hash_len+2:hash_len+2+date_len].decode()
+        hash_len = packet[0]
+        commit_hash = packet[1:hash_len+1].decode()
+        date_len = packet[hash_len+1]
+        commit_date = packet[hash_len+2:hash_len+2+date_len].decode()
 
         return commit_hash, commit_date
 
