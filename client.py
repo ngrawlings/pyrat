@@ -25,7 +25,7 @@ from datetime import datetime
 from web.WebCommandParser import WebCommandParser
 from web.CmdRelay import set_channel
 import datetime
-from utils GitInfo import get_latest_commit_info
+from utils.GitInfo import get_latest_commit_info
 
 OPT_QUIT = 0xFF
 OPT_NOOP = 0x00
