@@ -25,6 +25,7 @@ from datetime import datetime
 from web.WebCommandParser import WebCommandParser
 from web.CmdRelay import set_channel
 import datetime
+from utils GitInfo import get_latest_commit_info
 
 OPT_QUIT = 0xFF
 OPT_NOOP = 0x00
@@ -48,6 +49,7 @@ OPT_RELAY_LIST = 0x11
 OPT_RELAY_STOP = 0x12
 OPT_RELAY_STOPALL = 0x13
 OPT_FOLDER_INFO = 0x14
+OPT_GIT_REPO_INFO = 0x15
 
 OPT_KEEP_ALIVE_REQ = 0x20
 OPT_KEEP_ALIVE_REP = 0x21
@@ -374,6 +376,16 @@ class SocketThread(threading.Thread):
                         packet = creation_date_bytes + changed_date_bytes + file_size_bytes + hash_bytes + filename_length_bytes + filename_bytes
                             
                         self.socket.send(OPT_FOLDER_INFO.to_bytes(1, 'big') + packet)
+
+                elif opt == OPT_GIT_REPO_INFO:
+                    commit_hash, commit_date = get_latest_commit_info()
+                    if commit_hash is None:
+                        self.socket.send(OPT_GIT_REPO_INFO.to_bytes(1, 'big') + b'\x00')
+                    else:
+                        commit_hash_bytes = commit_hash.encode()
+                        commit_date_bytes = commit_date.encode()
+                        packet = len(commit_hash_bytes).to_bytes(1, 'big') + commit_hash_bytes + len(commit_date_bytes).to_bytes(1, 'big') + commit_date_bytes
+                        self.socket.send(OPT_GIT_REPO_INFO.to_bytes(1, 'big') + packet)
 
                 else:
                     pass
@@ -712,7 +724,25 @@ class SocketThread(threading.Thread):
             ret.append((filename, creation_date, change_date, file_size, hash_bytes))
 
         return ret
+    
+    def gitRepoInfo(self):
+        self.socket.send(OPT_GIT_REPO_INFO.to_bytes(1, 'big'))
+        packet = self.queue.get()
+        if not packet:
+            return
         
+        opt = packet[0]
+        if opt != OPT_GIT_REPO_INFO:
+            print("Wrong reply")
+
+        data = packet[1:]
+
+        hash_len = data[0]
+        commit_hash = data[1:hash_len+1].decode()
+        date_len = data[hash_len+1]
+        commit_date = data[hash_len+2:hash_len+2+date_len].decode()
+
+        return commit_hash, commit_date
 
     def close(self):
         self._con_run = False
@@ -839,9 +869,6 @@ class ConsoleThread(threading.Thread):
                     _selected_socket = _socket_threads[index]
 
                 elif parts[0] == "ping":
-                    if (len(parts) >= 2):
-                        _selected_socket.autoPing(True)
-
                     data = parts[1]
                     ret = _selected_socket.ping(data)
                     print(ret)
@@ -1058,6 +1085,12 @@ class ConsoleThread(threading.Thread):
                         print("Stopped relay")
                     else:
                         print("Failed to stop relay")
+
+                elif parts[0 == "repo.info"]:
+                    commit_hash, commit_date = _selected_socket.gitRepoInfo()
+                    if commit_hash is not None and commit_date is not None:
+                        print(commit_hash)
+                        print(commit_date)
 
                 elif parts[0] == "macro.set":
                     name = parts[1]
