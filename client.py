@@ -116,11 +116,9 @@ class SocketThread(threading.Thread):
                 packet = self.socket.receive()
             except socket.timeout:
                 if _tunnel_mode == 'remote' and self.socket.get_last_received_time() < time.time() - 300:
-                    print("Timeout: No packet received")
                     self.close()
                     break
                 elif self.socket.get_last_received_time() < time.time() - 60:
-                    print("Timeout: No packet received - keep alive")
                     self.keepAlive()
 
                 continue
