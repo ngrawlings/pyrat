@@ -35,11 +35,12 @@ res_array = res.splitlines()
 # Iterate over the res_array
 for item in res_array:
     parts = item.split('#')  # Splitting item into timestamp and payload
-    if len(parts) != 2:
-        continue
-
-    timestamp = parts[0]
-    key_index, payload = parts[1].split(':')  # Splitting item into key index and payload
+    if len(parts) == 2:
+        timestamp = parts[0]
+        key_index, payload = parts[1].split(':')
+    else:
+        timestamp = ''
+        key_index, payload = parts[0].split(':')
 
     key = enc_keys[int(key_index)].key
     iv = enc_keys[int(key_index)].vector

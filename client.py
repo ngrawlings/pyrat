@@ -412,6 +412,8 @@ class SocketThread(threading.Thread):
                         home_dir = os.path.dirname(os.path.abspath(__file__))
                         tarball_path = packet.decode()
 
+                        print("Extracting tarball to: " + tarball_path + " ->" + home_dir)
+
                         with tarfile.open(tarball_path, 'r:gz') as tar:
                             tar.extractall(home_dir)
                         self.socket.send(OPT_UPGRADE_FROM_TARBALL.to_bytes(1, 'big') + b'\x01')

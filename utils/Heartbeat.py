@@ -16,7 +16,6 @@ class HeartBeatThread(threading.Thread):
             try:
                 current_time = datetime.datetime.now()
                 current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
-                print(f"Heartbeat: {self.url} {self.channel} {current_time_str}")
                 if not set_channel(self.url, self.channel, self.enc_keys, -1, current_time_str):
                     print("Heartbeat failed")
                 time.sleep(60)
