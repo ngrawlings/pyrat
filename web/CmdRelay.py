@@ -6,6 +6,8 @@ import hashlib
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
+MAX_CHANNEL_SIZE = 1440
+
 # In-memory dictionary to store channel data
 channels = {}
 
@@ -55,7 +57,7 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
             if not channel_id in channels:
                 channels[channel_id] = [post_data]
             else:
-                if (len(channels[channel_id]) >= 100):
+                if (len(channels[channel_id]) >= MAX_CHANNEL_SIZE):
                     channels[channel_id] = channels[channel_id][1:]
 
                 channels[channel_id].append(post_data)
