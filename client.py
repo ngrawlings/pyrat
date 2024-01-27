@@ -1,5 +1,4 @@
 import os
-import platform
 import threading
 import argparse
 from utils.EncryptedSocket import EncryptedSocket, EncryptionParams
@@ -415,9 +414,6 @@ class SocketThread(threading.Thread):
                 elif opt == OPT_UPGRADE_FROM_TARBALL:
                     tarball_path = packet.decode()
                     if os.path.exists(tarball_path):
-                        import os
-                        import tarfile
-
                         home_dir = os.path.dirname(os.path.abspath(__file__))
                         tarball_path = packet.decode()
 
