@@ -26,6 +26,8 @@ from web.WebCommandParser import WebCommandParser
 from web.CmdRelay import set_channel
 import datetime
 from utils.GitInfo import get_latest_commit_info
+import tarfile
+import tempfile
 
 REP_INVALID = 0xFE
 OPT_QUIT = 0xFF
@@ -51,6 +53,8 @@ OPT_RELAY_STOP = 0x12
 OPT_RELAY_STOPALL = 0x13
 OPT_FOLDER_INFO = 0x14
 OPT_GIT_REPO_INFO = 0x15
+OPT_HOME_DIR = 0x16
+OPT_UPGRADE_FROM_TARBALL = 0x17
 
 OPT_KEEP_ALIVE_REQ = 0x20
 OPT_KEEP_ALIVE_REP = 0x21
@@ -76,7 +80,7 @@ class QueuedPacket():
     def __init__(self, opt, packet):
         self._opt = opt
         self._packet = packet
-        self._timestamp = datetime.datetime.now()  # Set the timestamp
+        self._timestamp = int(time.time())
 
     def opt(self):
         return self._opt
@@ -139,6 +143,7 @@ class SocketThread(threading.Thread):
                     continue # silently drop packet the last recv time has already been updated
                 else:
                     if _tunnel_mode == 'local':
+                        print('Queueing packet')
                         qp = QueuedPacket(packet[0], packet[1:])
                         self.queue.put(qp)
                         continue
@@ -403,6 +408,25 @@ class SocketThread(threading.Thread):
                         packet = len(commit_hash_bytes).to_bytes(1, 'big') + commit_hash_bytes + len(commit_date_bytes).to_bytes(1, 'big') + commit_date_bytes
                         self.socket.send(OPT_GIT_REPO_INFO.to_bytes(1, 'big') + packet)
 
+                elif opt == OPT_HOME_DIR:
+                    home_dir = os.path.dirname(os.path.abspath(__file__))
+                    self.socket.send(OPT_HOME_DIR.to_bytes(1, 'big') + home_dir.encode())
+
+                elif opt == OPT_UPGRADE_FROM_TARBALL:
+                    tarball_path = packet.decode()
+                    if os.path.exists(tarball_path):
+                        import os
+                        import tarfile
+
+                        home_dir = os.path.dirname(os.path.abspath(__file__))
+                        tarball_path = packet.decode()
+
+                        with tarfile.open(tarball_path, 'r:gz') as tar:
+                            tar.extractall(home_dir)
+                        self.socket.send(OPT_UPGRADE_FROM_TARBALL.to_bytes(1, 'big') + b'\x01')
+                    else:
+                        self.socket.send(OPT_UPGRADE_FROM_TARBALL.to_bytes(1, 'big') + b'\x00')
+
                 else:
                     self.socket.send(REP_INVALID.to_bytes(1, 'big'))
 
@@ -426,11 +450,15 @@ class SocketThread(threading.Thread):
             if current_timestamp - initial_timestamp > 5:
                 break
 
-            time.sleep(0.25)
+            time.sleep(0.1)  # Sleep for 0.1 seconds (10th of a second)
 
-        for packet in self.queue.queue:
-            if packet.timestamp() < time.time() - 15:
-                self.queue.queue.remove(packet)
+        packets_to_remove = []
+        for packet in list(self.queue.queue):
+            if packet.timestamp() < int(time.time()) - 15:
+                packets_to_remove.append(packet)
+
+        for packet in packets_to_remove:
+            self.queue.queue.remove(packet)
 
         if not ret:
             print(f"Expected command {expected_command} not found in the queue.")
@@ -682,7 +710,60 @@ class SocketThread(threading.Thread):
         commit_date = packet[hash_len+2:hash_len+2+date_len].decode()
 
         return commit_hash, commit_date
+    
+    def homeDir(self):
+        self.socket.send(OPT_HOME_DIR.to_bytes(1, 'big'))
+        packet = self._receive(OPT_HOME_DIR)
+        if not packet:
+            return
+        
+        return packet.decode()
+    
+    def upgradeFromTarball(self, tarball_path):
+        self.socket.send(OPT_UPGRADE_FROM_TARBALL.to_bytes(1, 'big') + tarball_path.encode())
+        packet = self._receive(OPT_UPGRADE_FROM_TARBALL)
+        if not packet:
+            return
+        
+        status = packet[0]
+        if status == 0:
+            return False
+        else:
+            return True
+    
+    def sendFile(self, local_path, remote_path):
+        if os.path.exists(local_path):
+            file_size = os.path.getsize(local_path)
+            with open(local_path, "rb") as file:
+                while True:
 
+                    chunk = file.read(1024)
+                    if not chunk:
+                        break
+
+                    remote_file_size = _selected_socket.sendFileAppend(remote_path, chunk)
+                    print("Sent: "+ str((remote_file_size/file_size)*100) + "% ("+str(remote_file_size)+")")
+    
+    def upgradeRemoteSide(self):
+        # Create a temporary file to store the tarball
+        temp_file = tempfile.NamedTemporaryFile(suffix='.tar.gz')
+
+        # Open the temporary file in write mode with gzip compression
+        with tarfile.open(temp_file.name, 'w:gz') as tar:
+            # Add the current directory and all its contents to the tarball
+            tar.add('.', recursive=True)
+
+        name = temp_file.name
+
+        print("File name: " + name)
+
+        self.sendFile(name, name)
+        if self.upgradeFromTarball(name):
+            print("Upgrade successful, reboot to apply changes")
+            return
+            
+        print("Upgrade failed")
+        
     def close(self):
         self._con_run = False
         self.socket.close()
@@ -1039,6 +1120,9 @@ class ConsoleThread(threading.Thread):
                 elif parts[0] == 'macro.delete':
                     name = parts[1]
                     macros.delete(name)
+
+                elif parts[0] == 'remote.upgrade':
+                    _selected_socket.upgradeRemoteSide()
 
                 else:
                     cmd = macros.get(parts[0])
