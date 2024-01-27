@@ -144,7 +144,7 @@ class SocketThread(threading.Thread):
                     if _tunnel_mode == 'local':
                         print('Queueing packet')
                         qp = QueuedPacket(packet[0], packet[1:])
-                        self.queue.put(qp)
+                        self.queue.put_nowait(qp)
                         continue
         
                 opt = packet[0]
@@ -433,20 +433,20 @@ class SocketThread(threading.Thread):
         initial_timestamp = time.time()
         ret = None
 
-        print("_receive: "+ str(expected_command) + " - "+ str(self.queue.queue))
-
-        while True:
+        while ret is None:
             for packet in self.queue.queue:
                 if packet.opt() == expected_command:
                     self.queue.queue.remove(packet)
                     ret = packet.packet()
+                    _run = False
                     break
                 
             current_timestamp = time.time()
-            if current_timestamp - initial_timestamp > 5:
+            if current_timestamp - initial_timestamp > 3:
                 break
 
             time.sleep(0.1)  # Sleep for 0.1 seconds (10th of a second)
+
 
         packets_to_remove = []
         for packet in list(self.queue.queue):
