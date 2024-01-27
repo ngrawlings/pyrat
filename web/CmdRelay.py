@@ -43,7 +43,7 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
                 self.end_headers()
                 output = ""
                 for entry in channels[channel_id]:
-                    output += entry.timestamp + "#" + entry.cmd + "\n"
+                    output += str(entry.timestamp) + "#" + entry.cmd + "\n"
                 print(output)
                 self.wfile.write(output.encode())
             else:
