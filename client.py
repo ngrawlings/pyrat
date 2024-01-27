@@ -135,14 +135,11 @@ class SocketThread(threading.Thread):
                 if packet[0] == OPT_NOOP: # NOOP is just a ping without a reply, it allows a manually enabled keep alive
                     continue
                 elif packet[0] == OPT_KEEP_ALIVE_REQ:
-                    print("OPT_KEEP_ALIVE_REQ", datetime.datetime.now())
                     self.socket.send(OPT_KEEP_ALIVE_REP.to_bytes(1, 'big'))
                 elif packet[0] == OPT_KEEP_ALIVE_REP:
-                    print("OPT_KEEP_ALIVE_REP")
                     continue # silently drop packet the last recv time has already been updated
                 else:
                     if _tunnel_mode == 'local':
-                        print('Queueing packet')
                         qp = QueuedPacket(packet[0], packet[1:])
                         self.queue.put_nowait(qp)
                         continue
@@ -739,7 +736,7 @@ class SocketThread(threading.Thread):
 
                     remote_file_size = _selected_socket.sendFileAppend(remote_path, chunk)
                     print("Sent: "+ str((remote_file_size/file_size)*100) + "% ("+str(remote_file_size)+")")
-    
+
     def upgradeRemoteSide(self):
         # Create a temporary file to store the tarball
         temp_file = tempfile.NamedTemporaryFile(suffix='.tar.gz')
@@ -747,7 +744,14 @@ class SocketThread(threading.Thread):
         # Open the temporary file in write mode with gzip compression
         with tarfile.open(temp_file.name, 'w:gz') as tar:
             # Add the current directory and all its contents to the tarball
-            tar.add('.', recursive=True)
+            for root, dirs, files in os.walk('.'):
+                # Exclude the .git directory
+                if '.git' in dirs:
+                    dirs.remove('.git')
+
+                for file in files:
+                    if not file.endswith('.json'):  # Exclude JSON files
+                        tar.add(os.path.join(root, file))
 
         name = temp_file.name
 
@@ -757,7 +761,7 @@ class SocketThread(threading.Thread):
         if self.upgradeFromTarball(name):
             print("Upgrade successful, reboot to apply changes")
             return
-            
+
         print("Upgrade failed")
         
     def close(self):
@@ -1226,7 +1230,8 @@ def main():
     else:
         _heart_beat_channel = get_heart_beat_channel()
         if _heart_beat_channel is not None:
-            _heart_beat_thread = HeartBeatThread(_heart_beat_channel, enc_keys)
+            hb_parts = _heart_beat_channel.split("#")
+            _heart_beat_thread = HeartBeatThread(hb_parts[0], hb_parts[1], enc_keys)
             _heart_beat_thread.start()
 
         for http_fallback in _http_fallbacks:
