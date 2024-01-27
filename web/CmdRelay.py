@@ -5,11 +5,17 @@ import base64
 import hashlib
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+from datetime import datetime
 
 MAX_CHANNEL_SIZE = 1440
 
 # In-memory dictionary to store channel data
 channels = {}
+
+class ChannelEntry():
+    def __init__(self, cmd):
+        self.cmd = cmd
+        self.timestamp = datetime.now()
 
 class HTTPCommandRelayServer(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -22,7 +28,7 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-type', 'text/plain')
                 self.end_headers()
-                last_value = channels[channel_id][-1]
+                last_value = channels[channel_id][-1].cmd
                 self.wfile.write(last_value.encode())
             else:
                 self.send_response(404)
@@ -36,8 +42,8 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'text/plain')
                 self.end_headers()
                 output = ""
-                for data in channels[channel_id]:
-                    output += data + "\n"
+                for entry in channels[channel_id]:
+                    output += entry.timestamp + "#" + entry.cmd + "\n"
                 print(output)
                 self.wfile.write(output.encode())
             else:
@@ -55,12 +61,12 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
             if not channel_id in channels:
-                channels[channel_id] = [post_data]
+                channels[channel_id] = [ChannelEntry(post_data)]
             else:
                 if (len(channels[channel_id]) >= MAX_CHANNEL_SIZE):
                     channels[channel_id] = channels[channel_id][1:]
 
-                channels[channel_id].append(post_data)
+                channels[channel_id].append(ChannelEntry(post_data))
 
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')

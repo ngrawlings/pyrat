@@ -34,7 +34,12 @@ res_array = res.splitlines()
 
 # Iterate over the res_array
 for item in res_array:
-    key_index, payload = item.split(':')  # Splitting item into key index and payload
+    parts = item.split('#')  # Splitting item into timestamp and payload
+    if len(parts) != 2:
+        continue
+
+    timestamp = parts[0]
+    key_index, payload = parts[1].split(':')  # Splitting item into key index and payload
 
     key = enc_keys[int(key_index)].key
     iv = enc_keys[int(key_index)].vector
@@ -49,6 +54,4 @@ for item in res_array:
     cmd = unpadded_cmd[32:].decode('utf-8')
 
     if hashed_cmd == hashlib.sha256(cmd.encode()).digest():
-        print(cmd)
-
-    
+        print(timestamp, cmd)
