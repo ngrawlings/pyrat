@@ -124,7 +124,6 @@ class SocketThread(threading.Thread):
                     continue # silently drop packet the last recv time has already been updated
                 else:
                     if _tunnel_mode == 'local':
-                        print("Received (queueing packet): "+ packet.decode())
                         self.queue.put(packet)
                         continue
         
