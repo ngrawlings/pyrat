@@ -27,6 +27,7 @@ from web.CmdRelay import set_channel
 import datetime
 from utils.GitInfo import get_latest_commit_info
 
+REP_INVALID = 0xFE
 OPT_QUIT = 0xFF
 OPT_NOOP = 0x00
 OPT_PING = 0x01
@@ -388,7 +389,7 @@ class SocketThread(threading.Thread):
                         self.socket.send(OPT_GIT_REPO_INFO.to_bytes(1, 'big') + packet)
 
                 else:
-                    pass
+                    self.socket.send(REP_INVALID.to_bytes(1, 'big'))
 
             except Exception as e:
                 traceback.print_exc()
