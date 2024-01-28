@@ -33,6 +33,7 @@ else:
 res_array = res.splitlines()
 
 # Iterate over the res_array
+index = 0
 for item in res_array:
     parts = item.split('#')  # Splitting item into timestamp and payload
     if len(parts) == 2:
@@ -55,4 +56,6 @@ for item in res_array:
     cmd = unpadded_cmd[32:].decode('utf-8')
 
     if hashed_cmd == hashlib.sha256(cmd.encode()).digest():
-        print(timestamp, cmd)
+        print(index, timestamp, cmd)
+
+    index = index + 1
