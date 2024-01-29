@@ -163,16 +163,16 @@ class SocketThread(threading.Thread):
                             process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                             try:
                                 output, error = process.communicate(timeout=timeout)
-                                return process.pid, output
+                                return process.pid, output, error
                             except subprocess.TimeoutExpired:
                                 return process.pid, None
 
-                        pid, output = run_command_with_timeout(command, timeout)
+                        pid, output, error = run_command_with_timeout(command, timeout)
+                        if error:
+                            output = error + "\n".encode() + output
+
                         print("Stdin Output: "+ str(output))
-                        if output is not None:
-                            self.socket.send(OPT_CLI.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
-                        else:
-                            self.socket.send(OPT_CLI.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
+                        self.socket.send(OPT_CLI.to_bytes(1, 'big') + (f"pid: {pid}\n{output.decode()}").encode())
 
                     except subprocess.CalledProcessError as e:
                         error_message = str(e).encode('utf-8')
@@ -184,10 +184,13 @@ class SocketThread(threading.Thread):
                     packet = packet[8:].decode('unicode_escape')
                     process = subprocess.Popen(["/bin/sh", "-c", "cat > /proc/{}/fd/0".format(pid)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
                     process.stdin.write(packet.encode())
-                    output, error = process.communicate(timeout=timeout)    
+                    output, error = process.communicate(timeout=timeout)
+                    if error:
+                        output = error + "\n".encode() + output
+
                     process.stdin.close()
                     process.wait()
-                    self.socket.send(OPT_PIPE_STDIN.to_bytes(1, 'big') + (f"pid {pid}: {output}").encode())
+                    self.socket.send(OPT_PIPE_STDIN.to_bytes(1, 'big') + (f"pid {pid}: {output.decode()}").encode())
 
                 elif opt == OPT_PIPE_STDOUT:
                     pid = int.from_bytes(packet[:4], 'big')
@@ -475,7 +478,7 @@ class SocketThread(threading.Thread):
     def cmd(self, command, timeout_millis=15000):
         timeout_bytes = timeout_millis.to_bytes(4, 'big')
         self.socket.send(OPT_CLI.to_bytes(1, 'big') + timeout_bytes + command.encode())
-        return self._receive(OPT_CLI).decode()
+        return self._receive(OPT_CLI).decode('utf-8')
     
     def cmdStdIn(self, pid, data, timeout_millis=15000):
         pid_bytes = pid.to_bytes(4, 'big')
