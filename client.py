@@ -1133,7 +1133,14 @@ class ConsoleThread(threading.Thread):
                         print("Executing macro: "+ cmd)
                         commands.append(cmd)
                     else:
-                        print("Invalid command")
+                        # default to running a command
+                        cmd = ''
+                        for part in parts:
+                            cmd += part + ' '
+
+                        result = _selected_socket.cmd(cmd.strip(), 10000)
+                        print(result)
+
 
             except Exception as e:
                 print(str(e))
