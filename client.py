@@ -279,7 +279,7 @@ class SocketThread(threading.Thread):
                         self.socket.send(OPT_FILE_CLOSE.to_bytes(1, 'big') + b'\x00')
 
                 elif opt == OPT_TUNNEL_COUNT:
-                    tunnel_count = len(self.tunnels)
+                    tunnel_count = len(self._tunnels)
                     packet_size = tunnel_count.to_bytes(4, 'big')
                     self.socket.send(OPT_TUNNEL_COUNT.to_bytes(1, 'big') + packet_size)
                     
@@ -308,23 +308,23 @@ class SocketThread(threading.Thread):
                 
                 elif opt == OPT_TUNNEL_CLOSE:
                     tunnel_index = packet[0]
-                    if tunnel_index >= len(self.tunnels):
+                    if tunnel_index >= len(_tunnels):
                         self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + b'\x00')
                         continue
 
                     packet = packet[1:]
-                    self.tunnels[tunnel_index].close()
-                    self.tunnels.pop(tunnel_index)
+                    _tunnels[tunnel_index].close()
+                    _tunnels.pop(tunnel_index)
                     self.socket.send(OPT_TUNNEL_CLOSE.to_bytes(1, 'big') + b'\x01')
 
                 elif opt == OPT_TUNNEL_STATUS:
                     tunnel_index = packet[0]
-                    if tunnel_index >= len(self.tunnels):
+                    if tunnel_index >= len(_tunnels):
                         self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + b'\x00')
                         continue
 
                     packet = packet[1:]
-                    tunnel = self.tunnels[tunnel_index]
+                    tunnel = _tunnels[tunnel_index]
                     encrypted_socket_state, socket_state = tunnel.status()
                     packet = ((encrypted_socket_state*2) + socket_state).to_bytes(4, 'big')
                     self.socket.send(OPT_TUNNEL_STATUS.to_bytes(1, 'big') + packet)
@@ -814,7 +814,7 @@ class ConnectionMonitorThread(threading.Thread):
                     encrypted_socket.settimeout(300)
 
                     key_len = len(self.enc_keys) 
-                    randorandom_key_index = random.randint(0, key_len)
+                    randorandom_key_index = random.randint(0, key_len-1)
                     print("Using key: "+ str(randorandom_key_index))
                     encrypted_socket.connect(self.host, self.port, randorandom_key_index)
 
@@ -1026,7 +1026,10 @@ class ConsoleThread(threading.Thread):
                     local_socket_mode = 0 if parts[2] == TunnelMode.SERVER else 1
                     remote_socket_mode = 0 if parts[3] == TunnelMode.SERVER else 1
 
-                    key_index = int(parts[4])
+                    if int(parts[4]) == -1:
+                        key_index = random.randint(0, len(enc_keys)-1)
+                    else:
+                        key_index = int(parts[4])
 
                     local_address = parts[5]
                     local_port = int(parts[6])
@@ -1055,6 +1058,9 @@ class ConsoleThread(threading.Thread):
                         if enc_mode == 2:
                             local_enc_mode = 1
 
+                        print(local_address + ":" + str(local_port))
+                        print(local_enc_address + ":" + str(local_enc_port))
+
                         tunnel = Tunnel(enc_keys, local_enc_mode, local_socket_mode)
                         tunnel.connect(key_index, local_address, local_port, local_enc_address, local_enc_port)
                         _tunnels.append(tunnel)
@@ -1081,8 +1087,13 @@ class ConsoleThread(threading.Thread):
                         print("Invalid index")
                         continue
 
-                    _tunnels[index].close()
-                    _tunnels.pop(index)
+                    res = _selected_socket.closeTunnel(index)
+                    if res:
+                        _tunnels[index].close()
+                        _tunnels.pop(index)
+                        print("Closed tunnel")
+                    else:
+                        print("Failed to close tunnel")
 
                 elif parts[0] == "relay.start":
                     host1 = parts[1]
@@ -1126,6 +1137,16 @@ class ConsoleThread(threading.Thread):
 
                 elif parts[0] == 'remote.upgrade':
                     _selected_socket.upgradeRemoteSide()
+
+                elif parts[0] == 'exec':
+                    cmd = ' '.join(parts[1:])
+
+                    try:
+                        # Run the command locally
+                        result = subprocess.check_output(cmd, shell=True, universal_newlines=True)
+                        print(result)
+                    except subprocess.CalledProcessError as e:
+                        print(f"Command execution failed: {e}")
 
                 else:
                     cmd = macros.get(parts[0])

@@ -6,17 +6,17 @@ import json
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--count", help="Keys", required=True, type=int)
-parser.add_argument("--tunnel_mode", help="Specify the tunnel mode", required=True)
 parser.add_argument("--output", help="Output File", required=True)
 parser.add_argument("--seed_type", help="Specify the seed type (audio/keyboard)", required=True)
 args = parser.parse_args()
 
 config = {
-    "tunnel_mode": args.tunnel_mode,
+    "tunnel_mode": 'local',
     "connections": [],
     "relays": [],
     "keys": []
 }
+paired_connections = []
 
 # Set the duration to listen to the microphone (in seconds)
 duration = [60, 50, 40, 30, 20, 10, 9, 8, 7, 6, 5, 4, 3, 2]
@@ -71,8 +71,13 @@ while True:
     mode = input("Enter mode: ")
     host = input("Enter host: ")
     port = input("Enter port: ")
-    
+
+    paired_mode = 'server'
+    if mode == 'client':
+        paired_mode = input("Should this be paired with a server connection or an inverted connection? (server/inverted): ")
+
     config["connections"].append({"socket_mode": mode, "host": host, "port": port})
+    paired_connections.append(paired_mode)
     
     add_another = input("Add another entry? (y/n): ")
     if add_another.lower() != "y":
@@ -94,6 +99,20 @@ if host_relay == 'yes':
         if add_another.lower() != "y":
             break
 
+if input("Add a heartbeat channel? (yes/NO): ") == 'yes':
+    url = input("Enter the heartbeat url: ")
+    channel = input("Enter the heartbeat channel: ")
+    config["heart_beat_channel"] = url + '#' + channel
+
+if input("Add a fallback channel? (yes/NO): ") == 'yes':
+    config["http_fallback"] = []
+    while True:
+        url = input("Enter the fallback url: ")
+        if url == "":
+            break
+        channel = input("Enter the fallback channel: ")
+        status_channel = input("Enter the fallback status channel: ")
+        config["http_fallback"].append({"url": url, "channel": channel, "status_channel": status_channel})
 
 for i in range(args.count):
     if args.seed_type == "keyboard":
@@ -106,8 +125,19 @@ for i in range(args.count):
     print(str(i+1))
 
 # Write config object as JSON to a file
-with open(args.output, 'w') as f:
+with open(args.output+'.local', 'w') as f:
     json.dump(config, f)
 
-print(config)
+index = 0
+for con in config['connections']:
+    if paired_connections[index] == 'inverted':
+        con['socket_mode'] = 'inverted'
+    else:
+        con['socket_mode'] = 'server'
+        con['host'] = '0.0.0.0'
 
+config['tunnel_mode'] = 'remote'
+
+# Write config object as JSON to a file
+with open(args.output+'.remote', 'w') as f:
+    json.dump(config, f)

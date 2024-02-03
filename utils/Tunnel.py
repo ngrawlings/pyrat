@@ -32,6 +32,7 @@ class Tunnel:
         self.connection_thread.start()
 
     def close(self):
+        print("Closing Tunnel")
         self._run = False
         self.encrypted_socket.close()
         self.socket.close()
