@@ -1,4 +1,5 @@
 import socket
+import sys
 
 def test_tcp_port(host, port):
     try:
@@ -22,4 +23,13 @@ def test_tcp_port(host, port):
         print("Failed")
 
 # Usage example
-test_tcp_port("localhost", 8080)
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python testtcpport.py <host> <port>")
+        sys.exit(1)
+    
+    host = sys.argv[1]
+    port = int(sys.argv[2])
+    
+    test_tcp_port(host, port)
+
