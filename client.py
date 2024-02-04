@@ -435,7 +435,7 @@ class SocketThread(threading.Thread):
 
         while ret is None:
             for packet in self.queue.queue:
-                if packet.opt() == expected_command:
+                if expected_command == None or packet.opt() == expected_command:
                     self.queue.queue.remove(packet)
                     ret = packet.packet()
                     _run = False
@@ -766,6 +766,9 @@ class SocketThread(threading.Thread):
             return
 
         print("Upgrade failed")
+
+    def getPendingReply(self):
+        return self._receive(None)
         
     def close(self):
         self._con_run = False
@@ -1147,6 +1150,11 @@ class ConsoleThread(threading.Thread):
                         print(result)
                     except subprocess.CalledProcessError as e:
                         print(f"Command execution failed: {e}")
+
+                elif parts[0] == 'get':
+                    res = _selected_socket.getPendingReply()
+                    if res:
+                        print(res)
 
                 else:
                     cmd = macros.get(parts[0])
