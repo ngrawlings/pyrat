@@ -1,6 +1,6 @@
 import os
 import argparse
-from Crypto.Cipher import Serpent, Twofish, AES
+from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 import shutil
 from Crypto import Random
@@ -15,13 +15,13 @@ def encrypt_file(file_path, key, iv):
     # Open the input and output files
     with open(file_path, 'rb') as input_file, open(encrypted_file_path+'.stage1', 'wb') as output_file:
         # Encrypt using Serpent
-        serpent_cipher = Serpent.new(key)
+        serpent_cipher = AES.new(key, AES.MODE_CBC, iv)
         encrypt_chunk(input_file, output_file, serpent_cipher)
 
     # Open the input and output files again to continue encryption
     with open(encrypted_file_path+'.stage1', 'rb') as input_file, open(encrypted_file_path+'.stage2', 'ab') as output_file:
         # Encrypt using Twofish
-        twofish_cipher = Twofish.new(key)
+        twofish_cipher = AES.new(key, AES.MODE_CBC, iv)
         encrypt_chunk(input_file, output_file, twofish_cipher)
 
     # Open the input and output files again to continue encryption
@@ -49,13 +49,13 @@ def decrypt_file(file_path, key, iv):
     # Open the input and output files again to continue decryption
     with open(decrypted_file_path+'.stage1', 'rb') as input_file, open(decrypted_file_path+'.stage2', 'ab') as output_file:
         # Decrypt using Twofish
-        twofish_cipher = Twofish.new(key)
+        twofish_cipher = AES.new(key, AES.MODE_CBC, iv)
         decrypt_chunk(input_file, output_file, twofish_cipher)
 
     # Open the input and output files again to continue decryption
     with open(decrypted_file_path+'.stage2', 'rb') as input_file, open(decrypted_file_path, 'ab') as output_file:
         # Decrypt using Serpent
-        serpent_cipher = Serpent.new(key)
+        serpent_cipher = AES.new(key, AES.MODE_CBC, iv)
         decrypt_chunk(input_file, output_file, serpent_cipher)
 
     # Delete stage 1 and stage 2 files
@@ -85,8 +85,9 @@ def decrypt_chunk(input_file, output_file, cipher):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='File encryption/decryption')
     parser.add_argument('file_path', type=str, help='Path to the file')
-    parser.add_argument('key', type=str, nargs='?', default=None, help='Encryption key')
-    parser.add_argument('iv', type=str, nargs='?', default=None, help='Initialisation vector')
+    parser.add_argument('--key', type=str, nargs='?', default=None, help='Encryption key')
+    parser.add_argument('--iv', type=str, nargs='?', default=None, help='Initialisation vector')
+    parser.add_argument('--mode', type=str, nargs='?', default=None, help='enc/dec')
     args = parser.parse_args()
 
     if args.key is None:
@@ -101,5 +102,7 @@ if __name__ == '__main__':
     else:
         iv = bytes.fromhex(args.iv)
 
-    encrypt_file(args.file_path, key, iv)
-    decrypt_file(args.file_path + '.encrypted', key, iv)
+    if args.mode == 'dec':
+        decrypt_file(args.file_path, key, iv)
+    else:
+        encrypt_file(args.file_path, key, iv)
