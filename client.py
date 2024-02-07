@@ -75,6 +75,8 @@ _heart_beat_thread = None
 
 macros = Macros("macros.json")
 
+_reply_timout = 3
+
 class QueuedPacket():
     def __init__(self, opt, packet):
         self._opt = opt
@@ -429,7 +431,7 @@ class SocketThread(threading.Thread):
             except Exception as e:
                 traceback.print_exc()
 
-    def _receive(self, expected_command):
+    def _receive(self, expected_command, timeout=3):
         initial_timestamp = time.time()
         ret = None
 
@@ -442,7 +444,7 @@ class SocketThread(threading.Thread):
                     break
                 
             current_timestamp = time.time()
-            if current_timestamp - initial_timestamp > 3:
+            if current_timestamp - initial_timestamp > timeout:
                 break
 
             time.sleep(0.1)  # Sleep for 0.1 seconds (10th of a second)
@@ -1155,6 +1157,10 @@ class ConsoleThread(threading.Thread):
                     res = _selected_socket.getPendingReply()
                     if res:
                         print(res)
+
+                elif parts[0] == 'set':
+                    if parts[1] == 'timeout':
+                        _reply_timout = int(parts[2])
 
                 else:
                     cmd = macros.get(parts[0])
