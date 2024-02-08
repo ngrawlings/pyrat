@@ -29,6 +29,7 @@ from utils.GitInfo import get_latest_commit_info
 import tarfile
 import tempfile
 import requests
+from tqdm import tqdm
 
 REP_INVALID = 0xFE
 OPT_QUIT = 0xFF
@@ -1242,12 +1243,29 @@ def webCommandParserCallback(enc_keys, command):
         output_path = command['path']
         if url.startswith('http://') or url.startswith('https://'):
             log(f"Downloading file from {url}")
-            response = requests.get(url)
-            with open(output_path, 'wb') as file:
-                file.write(response.content)
-            log(f"File downloaded successfully from {url}")
-        else:
-            log("Invalid URL. Please provide a valid HTTP or HTTPS URL.") 
+            def download_file(url, output_path):
+                response = requests.get(url, stream=True)
+                total_size = int(response.headers.get('content-length', 0))
+                block_size = 1024  # Adjust the block size as per your preference
+                progress_bar = tqdm(total=total_size, unit='B', unit_scale=True)
+
+                next_update = 5
+                with open(output_path, 'wb') as file:
+                    for data in response.iter_content(block_size):
+                        progress_bar.update(len(data))
+
+                        # Calculate the percentage
+                        percentage = (progress_bar.n / progress_bar.total) * 100
+                        if percentage >= next_update:
+                            next_update += 5
+                            log(f"Downloaded: {percentage:.2f}%")
+
+                        file.write(data)
+
+                progress_bar.close()
+                log(f"File downloaded successfully from {url}")
+
+            download_file(url, output_path)
 
 # Define a signal handler for SIGINT (Control+C)
 def signal_handler(sig, frame):
