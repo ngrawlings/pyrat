@@ -921,12 +921,16 @@ class ConsoleThread(threading.Thread):
 
                 elif parts[0] == "cmd":
                     tmeout_millis = 15000
-                    _reply_timeout_orig = _reply_timeout
-                    _reply_timeout = (tmeout_millis//1000)+3
                     if len(parts) >= 3:
                         tmeout_millis = int(parts[2])
+
+                    _reply_timeout_orig = _reply_timeout
+                    if _reply_timeout < (tmeout_millis//1000)+3:
+                        _reply_timeout = (tmeout_millis//1000)+3
+
                     result = _selected_socket.cmd(parts[1], tmeout_millis)
                     print(result)
+
                     _reply_timeout = _reply_timeout_orig
 
                 elif parts[0] == "sudo":
