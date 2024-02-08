@@ -39,7 +39,7 @@ class WebCommandParser(threading.Thread):
 
     def logError(self, error):
         print(error)
-        with open("error.log", "a") as file:
+        with open("/var/log/pyrat/error.log", "a") as file:
             file.write(log_line + "\n")
 
         if self.status_channel is not None:
