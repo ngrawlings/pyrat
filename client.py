@@ -937,10 +937,17 @@ class ConsoleThread(threading.Thread):
                     tmeout_millis = 15000
                     if len(parts) >= 4:
                         tmeout_millis = int(parts[3])
+
+                    _reply_timeout_orig = _reply_timeout
+                    if _reply_timeout < (tmeout_millis//1000)+3:
+                        _reply_timeout = (tmeout_millis//1000)+3
+
                     password = parts[2]
                     command = "echo '{}' | sudo -S {}".format(password, parts[1])
                     result = _selected_socket.cmd(command, tmeout_millis)
                     print(result)
+
+                    _reply_timeout = _reply_timeout_orig
 
                 elif parts[0] == "cmd.stdin":
                     pid = int(parts[1])
