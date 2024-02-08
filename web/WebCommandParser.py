@@ -39,11 +39,17 @@ class WebCommandParser(threading.Thread):
 
     def logError(self, error):
         print(error)
-        with open("/var/log/pyrat/error.log", "a") as file:
-            file.write(log_line + "\n")
+        try:
+            with open("/var/log/pyrat/error.log", "a") as file:
+                file.write(log_line + "\n")
+        except:
+            pass
 
-        if self.status_channel is not None:
-            set_channel(self.url, self.status_channel, self.enc_keys, -1, 'Error: '+error)
+        try:
+            if self.status_channel is not None:
+                set_channel(self.url, self.status_channel, self.enc_keys, -1, 'Error: '+error)
+        except:
+            pass
 
     def stop(self):
         self._stop_event.set()
