@@ -1198,6 +1198,10 @@ class ConsoleThread(threading.Thread):
             except Exception as e:
                 print(str(e))
                 traceback.print_exc()
+                
+def log(msg):
+    for l in _web_log:
+        l.log(msg)
 
 def webCommandParserCallback(enc_keys, command):
     if command["cmd"] == 'closeall':
@@ -1286,7 +1290,7 @@ def main():
         channel = http_fallback[1]
         status_channel = http_fallback[2]
         print(f"Initialising http fallback monitor: {url} : {channel}")
-        wl = WebLogQueue(url, status_channel)
+        wl = WebLogQueue(url, status_channel, enc_keys)
         wcp = WebCommandParser(url, channel, enc_keys, wl)
         wcp.start()
         wcp.set_callback(webCommandParserCallback)
@@ -1310,10 +1314,9 @@ def main():
             _heart_beat_thread = HeartBeatThread(hb_parts[0], hb_parts[1], enc_keys)
             _heart_beat_thread.start()
 
-        for wl in _web_log:
-            current_datetime = datetime.datetime.now()
-            formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
-            wl.log(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Pyrat launched: " + formatted_datetime)
+        current_datetime = datetime.datetime.now()
+        formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        log("Pyrat launched: " + formatted_datetime)
 
         con_thread.join()
 

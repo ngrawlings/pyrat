@@ -75,7 +75,7 @@ def encrypt_chunk(input_file, output_file, cipher):
 
 def decrypt_chunk(input_file, output_file, cipher):
     while True:
-        chunk = input_file.read(CHUNK_SIZE)
+        chunk = input_file.read(CHUNK_SIZE+16)
         if not chunk:
             break
         decrypted_chunk = cipher.decrypt(chunk)
@@ -85,22 +85,23 @@ def decrypt_chunk(input_file, output_file, cipher):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='File encryption/decryption')
     parser.add_argument('file_path', type=str, help='Path to the file')
-    parser.add_argument('--key', type=str, nargs='?', default=None, help='Encryption key')
-    parser.add_argument('--iv', type=str, nargs='?', default=None, help='Initialisation vector')
     parser.add_argument('--mode', type=str, nargs='?', default=None, help='enc/dec')
     args = parser.parse_args()
 
-    if args.key is None:
+    key = input('Key: ')
+    iv = input('iv: ')
+
+    if key is None:
         key = Random.get_random_bytes(32)
         print(key.hex())
     else:
-        key = bytes.fromhex(args.key)
+        key = bytes.fromhex(key)
 
-    if args.iv is None:
+    if iv is None:
         iv = Random.get_random_bytes(16)
         print(iv.hex())
     else:
-        iv = bytes.fromhex(args.iv)
+        iv = bytes.fromhex(iv)
 
     if args.mode == 'dec':
         decrypt_file(args.file_path, key, iv)
