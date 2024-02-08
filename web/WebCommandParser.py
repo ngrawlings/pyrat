@@ -3,6 +3,7 @@ import threading
 import time
 from web.CmdRelay import get_channel, set_channel
 import json
+import traceback
 
 class WebCommandParser(threading.Thread):
     def __init__(self, url, channel, enc_keys, status_channel=None):
@@ -30,10 +31,19 @@ class WebCommandParser(threading.Thread):
                     elif self.callback is not None:
                         self.callback(self.enc_keys, cmd_json)
 
-                except json.JSONDecodeError:
-                    print("Invalid JSON format")
+                except Exception as e:
+                    traceback_str = traceback.format_exc()
+                    self.logError(traceback_str)
 
             time.sleep(60)  # Sleep for 1 minute
+
+    def logError(self, error):
+        print(error)
+        with open("error.log", "a") as file:
+            file.write(log_line + "\n")
+
+        if self.status_channel is not None:
+            set_channel(self.url, self.status_channel, self.enc_keys, -1, 'Error: '+error)
 
     def stop(self):
         self._stop_event.set()
