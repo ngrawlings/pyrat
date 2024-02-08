@@ -1245,7 +1245,7 @@ def webCommandParserCallback(enc_keys, command):
                 next_update = 5
 
                 with open(output_path, 'wb') as file:
-                    for data in response.iter_content(block_size):
+                    for data in response.iter_content(4096):
                         downloaded += len(data)
 
                         # Calculate the percentage
@@ -1256,7 +1256,6 @@ def webCommandParserCallback(enc_keys, command):
 
                         file.write(data)
 
-                progress_bar.close()
                 log(f"File downloaded successfully from {url}")
 
             download_file(url, output_path)
