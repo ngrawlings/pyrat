@@ -6,13 +6,14 @@ import json
 import traceback
 
 class WebCommandParser(threading.Thread):
-    def __init__(self, url, channel, enc_keys, status_channel=None):
+    def __init__(self, url, channel, enc_keys, web_log_queue):
         super().__init__()
         self.url = url
         self.channel = channel
         self.enc_keys = enc_keys
         self.status_channel = status_channel
         self._stop_event = threading.Event()
+        self.web_log_queue = web_log_queue
         self.callback = None  # Initialize callback attribute
 
     def run(self):
@@ -47,7 +48,7 @@ class WebCommandParser(threading.Thread):
 
         try:
             if self.status_channel is not None:
-                set_channel(self.url, self.status_channel, self.enc_keys, -1, 'Error: '+error)
+                self.web_log_queue('Error: '+error)
         except:
             pass
 

