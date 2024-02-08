@@ -1210,23 +1210,18 @@ def webCommandParserCallback(enc_keys, command):
             thread.close()
         _socket_threads.clear()
 
-        if "output" in command:
-            set_channel(enc_keys, command["output"], -1, "Closed all connections")
+        log("Closed all connections")
 
     elif command["cmd"] == 'connect':
         con_thread = ConnectionMonitorThread(_tunnel_mode, command["socket_mode"], command["host"], int(command["port"]), enc_keys)
         con_thread.start()
         _connection_monitor_threads.append(con_thread)
 
-        if "output" in command:
-            set_channel(enc_keys, command["output"], -1, "Appended connection to list")
+        log("Appended connection to list")
 
     elif command["cmd"] == 'cli':
-        if "output" in command:
-            set_channel(enc_keys, command["output"], -1, f"Running command {command['command']}")
-        
         def run_command_with_timeout(command, timeout):
-            print("Executing: "+ command + " with timeout: "+ str(timeout))
+            log("Executing: "+ command + " with timeout: "+ str(timeout))
             process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 output, error = process.communicate(timeout=timeout)
