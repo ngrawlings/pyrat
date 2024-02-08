@@ -75,7 +75,7 @@ _heart_beat_thread = None
 
 macros = Macros("macros.json")
 
-_reply_timout = 3
+_reply_timeout = 3
 
 class QueuedPacket():
     def __init__(self, opt, packet):
@@ -921,10 +921,13 @@ class ConsoleThread(threading.Thread):
 
                 elif parts[0] == "cmd":
                     tmeout_millis = 15000
+                    _reply_timeout_orig = _reply_timeout
+                    _reply_timeout = (tmeout_millis//1000)+3
                     if len(parts) >= 3:
                         tmeout_millis = int(parts[2])
                     result = _selected_socket.cmd(parts[1], tmeout_millis)
                     print(result)
+                    _reply_timeout = _reply_timeout_orig
 
                 elif parts[0] == "sudo":
                     tmeout_millis = 15000
@@ -1160,7 +1163,7 @@ class ConsoleThread(threading.Thread):
 
                 elif parts[0] == 'set':
                     if parts[1] == 'timeout':
-                        _reply_timout = int(parts[2])
+                        _reply_timeout = int(parts[2])
 
                 else:
                     cmd = macros.get(parts[0])
