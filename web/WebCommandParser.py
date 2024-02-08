@@ -11,7 +11,6 @@ class WebCommandParser(threading.Thread):
         self.url = url
         self.channel = channel
         self.enc_keys = enc_keys
-        self.status_channel = status_channel
         self._stop_event = threading.Event()
         self.web_log_queue = web_log_queue
         self.callback = None  # Initialize callback attribute
@@ -63,8 +62,6 @@ class WebCommandParser(threading.Thread):
 
     def getChannel(self):
         return self.channel
-    
-    def getStatusChannel(self):
-        return self.status_channel
+
     
 
