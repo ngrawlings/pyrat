@@ -60,6 +60,19 @@ class HTTPCommandRelayServer(BaseHTTPRequestHandler):
             channel_id = path_parts[3]
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
+            import csv
+            from datetime import datetime
+
+            def append_to_csv(file_path, channel, message):
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                line = [timestamp, channel, message]
+
+                with open(file_path, 'a', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(line)
+
+            append_to_csv('/var/log/cmdrelay/log.csv', channel_id, post_data)
+
             if not channel_id in channels:
                 channels[channel_id] = [ChannelEntry(post_data)]
             else:
