@@ -120,7 +120,7 @@ class HTTPCommandRelayClient:
 
     def get_channel(self, channel_id):
         url = f"{self.server_url}/get/{channel_id}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=60)
         if response.status_code == 200:
             return response.text
         else:
