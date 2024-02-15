@@ -15,6 +15,7 @@ class Tunnel:
     def __init__(self, encryption_keys: List[EncryptionParams], enc_mode: str, socket_mode: str):
         self.encrypted_socket = EncryptedSocket(encryption_keys)
         self.socket = Socket()
+        self.server_socket = None
         self.enc_mode = enc_mode
         self.socket_mode = socket_mode
         self._run = True
