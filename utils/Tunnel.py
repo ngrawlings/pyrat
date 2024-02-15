@@ -36,6 +36,8 @@ class Tunnel:
         self._run = False
         self.encrypted_socket.close()
         self.socket.close()
+        if self.server_socket is not None:
+            self.server_socket.close()
 
     def status(self):
         encrypted_socket_state = 1 if self.encrypted_socket.is_connected() else 0
