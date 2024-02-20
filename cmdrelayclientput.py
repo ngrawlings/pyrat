@@ -1,3 +1,4 @@
+import datetime
 from web.CmdRelay import HTTPCommandRelayClient
 from utils.config import load_config
 import argparse
@@ -40,7 +41,7 @@ else:
     cipher = AES.new(key, AES.MODE_CBC, iv)
     
     cmd = json.dumps(args.cmd)
-    cmd.timestamp = int(time.time())
+    cmd.timestamp = int(datetime.utcnow().timestamp())
     cmd = json.dumps(cmd)
 
     hashed_cmd = hashlib.sha256(str(cmd).encode()).digest()
