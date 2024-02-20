@@ -5,6 +5,10 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 import hashlib
 import base64
+import string
+import random
+import json
+import time
 
 # Create the argument parser
 parser = argparse.ArgumentParser(description='Command Line Arguments')
@@ -34,9 +38,13 @@ else:
     iv = enc_keys[keyindex].vector
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
+    
+    cmd = json.dumps(args.cmd)
+    cmd.timestamp = int(time.time())
+    cmd = json.dumps(cmd)
 
-    hashed_cmd = hashlib.sha256(str(args.cmd).encode()).digest()
-    encrypted_data = cipher.encrypt(pad(hashed_cmd+args.cmd.encode(), AES.block_size))
+    hashed_cmd = hashlib.sha256(str(cmd).encode()).digest()
+    encrypted_data = cipher.encrypt(pad(hashed_cmd+cmd.encode(), AES.block_size))
     encoded_data = base64.b64encode(encrypted_data).decode('utf-8')
 
     print("Posting command to channel " + str(args.channel) + ": " + str(keyindex) + ":" + encoded_data)

@@ -41,7 +41,7 @@ class WebCommandParser(threading.Thread):
         print(error)
         try:
             with open("/var/log/pyrat/error.log", "a") as file:
-                file.write(log_line + "\n")
+                file.write(error + "\n")
         except:
             pass
 

