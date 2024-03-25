@@ -80,6 +80,8 @@ macros = Macros("macros.json")
 
 _reply_timeout = 3
 
+_console_thread = None
+
 class QueuedPacket():
     def __init__(self, opt, packet):
         self._opt = opt
@@ -799,7 +801,7 @@ class ConnectionMonitorThread(threading.Thread):
             self._server_socket.listen()
 
     def run(self):
-        global console_thread
+        global _console_thread
         
         while _run and self._con_run:
             try:
@@ -838,7 +840,8 @@ class ConnectionMonitorThread(threading.Thread):
                 _socket_threads.append(self._socket_thread)
                 
                 # connection has been completed, execute on_connect command
-                console_thread.parse(self.on_connect)
+                if _con_console_thread is not None:
+                    _console_thread.parse(self.on_connect)
 
                 if self.socket_mode == 'server' and len(_socket_threads) >= 8:
                         time.sleep(10)
@@ -866,6 +869,8 @@ class ConsoleThread(threading.Thread):
         self.commands.append(command)
         
     def parse(self, command):
+        global _controlc_count, _run, _connection_monitor_threads, _socket_threads, _tunnels, _selected_socket, macros, _reply_timeout
+
         parts = []
         in_quotes = False
         current_part = ""
@@ -1281,7 +1286,7 @@ def signal_handler(sig, frame):
         raise KeyboardInterrupt
 
 def main():
-    global _run, _tunnel_mode, connections, _relays, enc_keys, _selected_socket, _heart_beat_thread
+    global _run, _tunnel_mode, connections, _relays, enc_keys, _selected_socket, _heart_beat_thread, _console_thread
 
     # Register the signal handler for SIGINT
     signal.signal(signal.SIGINT, signal_handler)
@@ -1317,17 +1322,18 @@ def main():
         wcp.set_callback(webCommandParserCallback)
         _http_fallbacks.append(wcp)
         _web_log.append(wl)
-        
+
     if _tunnel_mode == 'local':
+        _console_thread = ConsoleThread()
+
         while len(_socket_threads) == 0:
             time.sleep(1)
 
         if len(_socket_threads) > 0:
             _selected_socket = _socket_threads[0]
 
-        console_thread = ConsoleThread()
-        console_thread.start()
-        console_thread.join()
+        _console_thread.start()
+        _console_thread.join()
     else:
         _heart_beat_channel = get_heart_beat_channel()
         if _heart_beat_channel is not None:
