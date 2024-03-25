@@ -840,7 +840,7 @@ class ConnectionMonitorThread(threading.Thread):
                 _socket_threads.append(self._socket_thread)
                 
                 # connection has been completed, execute on_connect command
-                if _con_console_thread is not None:
+                if _console_thread is not None:
                     _console_thread.parse(self.on_connect)
 
                 if self.socket_mode == 'server' and len(_socket_threads) >= 8:
