@@ -784,13 +784,14 @@ class ConnectionMonitorThread(threading.Thread):
     _socket_thread = None
     _server_socket = None
 
-    def __init__(self, tunnel_mode, socket_mode, host, port, enc_keys):
+    def __init__(self, tunnel_mode, socket_mode, host, port, enc_keys, on_connect):
         super().__init__()
         self.tunnel_mode = tunnel_mode
         self.socket_mode = socket_mode
         self.host = host
         self.port = port
         self.enc_keys = enc_keys
+        self.on_connect = on_connect
 
         if socket_mode == 'server':
             self._server_socket = Socket()
@@ -798,6 +799,8 @@ class ConnectionMonitorThread(threading.Thread):
             self._server_socket.listen()
 
     def run(self):
+        global console_thread
+        
         while _run and self._con_run:
             try:
                 # remove dead sockets
@@ -833,6 +836,9 @@ class ConnectionMonitorThread(threading.Thread):
                 self._socket_thread.start()
 
                 _socket_threads.append(self._socket_thread)
+                
+                # connection has been completed, execute on_connect command
+                console_thread.parse(self.on_connect)
 
                 if self.socket_mode == 'server' and len(_socket_threads) >= 8:
                         time.sleep(10)
@@ -854,346 +860,350 @@ class ConnectionMonitorThread(threading.Thread):
 class ConsoleThread(threading.Thread):
     def __init__(self):
         super().__init__()
+        self.commands = deque()
+        
+    def pushCommand(self, command):
+        self.commands.append(command)
+        
+    def parse(self, command):
+        parts = []
+        in_quotes = False
+        current_part = ""
+        ignore_next = False
+        for char in command:
+            if ignore_next:
+                current_part += char
+                ignore_next = False
+            elif char == "\\":
+                ignore_next = True
+            elif char == " " and not in_quotes:
+                parts.append(current_part)
+                current_part = ""
+            elif char == '"':
+                in_quotes = not in_quotes
+            else:
+                current_part += char
+        parts.append(current_part)
+
+        if parts[0] == "quit":
+            _run = False
+            return
+
+        elif parts[0] == "select":
+            index = int(parts[1])
+            if index >= len(_socket_threads):
+                print("Invalid index")
+                return
+
+            _selected_socket = _socket_threads[index]
+
+        elif parts[0] == "ping":
+            data = parts[1]
+            ret = _selected_socket.ping(data)
+            print(ret)
+
+        elif parts[0] == "con.list":
+            for thread in _socket_threads:
+                print(thread.socket.get_remote_address())
+
+        elif parts[0] == "con.close":
+            index = int(parts[1])
+            if index >= len(_socket_threads):
+                print("Invalid index")
+                return
+
+            if (_selected_socket == _socket_threads[index]):
+                if len(_socket_threads) > 1:
+                    _selected_socket = _socket_threads[0]
+                else:
+                    _selected_socket = None
+
+            _connection_monitor_threads[index].close()
+
+        elif parts[0] == "cmd":
+            tmeout_millis = 15000
+            if len(parts) >= 3:
+                tmeout_millis = int(parts[2])
+
+            _reply_timeout_orig = _reply_timeout
+            if _reply_timeout < (tmeout_millis//1000)+3:
+                _reply_timeout = (tmeout_millis//1000)+3
+
+            result = _selected_socket.cmd(parts[1], tmeout_millis)
+            print(result)
+
+            _reply_timeout = _reply_timeout_orig
+
+        elif parts[0] == "sudo":
+            tmeout_millis = 15000
+            if len(parts) >= 4:
+                tmeout_millis = int(parts[3])
+
+            _reply_timeout_orig = _reply_timeout
+            if _reply_timeout < (tmeout_millis//1000)+3:
+                _reply_timeout = (tmeout_millis//1000)+3
+
+            password = parts[2]
+            command = "echo '{}' | sudo -S {}".format(password, parts[1])
+            result = _selected_socket.cmd(command, tmeout_millis)
+            print(result)
+
+            _reply_timeout = _reply_timeout_orig
+
+        elif parts[0] == "cmd.stdin":
+            pid = int(parts[1])
+            data = parts[2]
+            tmeout_millis = 15000
+            if len(parts) <= 4:
+                tmeout_millis = int(parts[3])
+            result = _selected_socket.cmdStdIn(pid, data.encode(), tmeout_millis)
+            print(result)
+
+        elif parts[0] == "cmd.stdout":
+            pid = int(parts[1])
+            tmeout_millis = 15000
+            if len(parts) <= 3:
+                tmeout_millis = int(parts[2])
+            result = _selected_socket.cmdStdOut(pid)
+            print(result)
+
+        elif parts[0] == "con.connect":
+            con_thread = ConnectionMonitorThread(_tunnel_mode, parts[1], parts[2], int(parts[3]), enc_keys)
+            con_thread.start()
+            _connection_monitor_threads.append(con_thread)
+
+        elif parts[0] == "con.sendfile":
+            local_path = parts[1]
+            remote_path = parts[2]
+            resume = True if len(parts) > 3 and parts[3] == "resume" else False
+
+            if os.path.exists(local_path):
+                if not resume:
+                    _selected_socket.fileTruncate(remote_path)
+
+                file_size = os.path.getsize(local_path)
+                with open(local_path, "rb") as file:
+                    if resume:
+                        offset = _selected_socket.fileSize(remote_path)
+                        file.seek(offset)
+                        
+                    while True:
+                        if _controlc_count > 0:
+                            _controlc_count -= 1
+                            break
+
+                        chunk = file.read(1024)
+                        if not chunk:
+                            break
+
+                        remote_file_size = _selected_socket.sendFileAppend(remote_path, chunk)
+                        print("Sent: "+ str((remote_file_size/file_size)*100) + "% ("+str(remote_file_size)+")")
+
+                        
+            else:
+                print("File does not exist")
+
+        elif parts[0] == "con.recvfile":
+            remote_path = parts[1]
+            local_path = parts[2]
+            total_received = 0
+            file_size = _selected_socket.fileSize(remote_path)
+
+            if file_size > 0:
+                offset = 0
+                if os.path.exists(local_path):
+                    offset = os.path.getsize(local_path)
+
+                total_received = offset
+
+                with open(local_path, "ab" if offset > 0 else "wb") as file:
+                    if _selected_socket.openFile(remote_path, offset):
+                        while total_received < file_size:
+                            if _controlc_count > 0:
+                                _controlc_count -= 1
+                                break
+
+                            chunk = _selected_socket.readFile(remote_path)
+                            if not chunk:
+                                break
+
+                            file.write(chunk)
+                            total_received += len(chunk)
+                            print("Received: " + str((total_received/file_size)*100) + "% ("+str(total_received)+")")
+
+                        _selected_socket.closeFile(remote_path)
+
+            else:
+                print("File does not exist")
+
+        elif parts[0] == "tunnel.create": # Mode is always the local mode
+            enc_mode = 0 
+            if parts[1] == TunnelMode.CLIENT:
+                enc_mode = 1
+            elif parts[1] == TunnelMode.INVERTED_SERVER:
+                enc_mode = 2
+
+            local_socket_mode = 0 if parts[2] == TunnelMode.SERVER else 1
+            remote_socket_mode = 0 if parts[3] == TunnelMode.SERVER else 1
+
+            if int(parts[4]) == -1:
+                key_index = random.randint(0, len(enc_keys)-1)
+            else:
+                key_index = int(parts[4])
+
+            local_address = parts[5]
+            local_port = int(parts[6])
+            local_enc_address = parts[7]
+            local_enc_port = int(parts[8])
+
+            remote_address = parts[9]
+            remote_port = int(parts[10])
+            remote_enc_address = parts[11]
+            remote_enc_port = int(parts[12])
+
+            def create_remote_tunnel():
+                if enc_mode == 0:
+                    remote_enc_mode = 1
+                elif enc_mode == 2:
+                    remote_enc_mode = 2
+                else:
+                    remote_enc_mode = 0
+
+                print("Creating remote tunnel", remote_enc_mode, remote_socket_mode)
+                return _selected_socket.openTunnel(remote_enc_mode, remote_socket_mode, key_index, remote_address, remote_port, remote_enc_address, remote_enc_port)
+                
+            def create_local_tunnel():
+                print("Creating local tunnel", enc_mode, local_socket_mode)
+                local_enc_mode = enc_mode
+                if enc_mode == 2:
+                    local_enc_mode = 1
+
+                print(local_address + ":" + str(local_port))
+                print(local_enc_address + ":" + str(local_enc_port))
+
+                tunnel = Tunnel(enc_keys, local_enc_mode, local_socket_mode)
+                tunnel.connect(key_index, local_address, local_port, local_enc_address, local_enc_port)
+                _tunnels.append(tunnel)
+                return tunnel
+
+            # create remote server part of the tunnel first regardless if remote or local
+            if enc_mode == 1:
+                print("Client Mode")
+                if create_remote_tunnel():
+                    create_local_tunnel()
+            else:
+                print("Server Mode")
+                tun =  create_local_tunnel()
+                if not create_remote_tunnel():
+                    _tunnels.remove(tun)
+
+        elif parts[0] == "tunnel.list":
+            for tunnel in _tunnels:
+                print(tunnel.status())
+
+        elif parts[0] == "tunnel.close":
+            index = int(parts[1])
+            if index >= len(_tunnels):
+                print("Invalid index")
+                return
+
+            res = _selected_socket.closeTunnel(index)
+            if res:
+                _tunnels[index].close()
+                _tunnels.pop(index)
+                print("Closed tunnel")
+            else:
+                print("Failed to close tunnel")
+
+        elif parts[0] == "relay.start":
+            host1 = parts[1]
+            port1 = int(parts[2])
+            host2 = parts[3]
+            port2 = int(parts[4])
+
+            res = _selected_socket.startRelay(host1, port1, host2, port2)
+
+            if res:
+                print("Started relay")
+            else:
+                print("Failed to start relay")
+
+        elif parts[0] == "relay.list":
+            relays = _selected_socket.listRelays()
+            for relay in relays:
+                print(relay.address1 +":"+ str(relay.port1) +" -> "+ relay.address2 +":"+ str(relay.port2) + " ("+ str(relay.connected1) +","+ str(relay.connected2) +","+ str(relay.is_running) +")")
+
+        elif parts[0] == "relay.stop":
+            res = _selected_socket.stopRelay(int(parts[1]))
+            if res:
+                print("Stopped relay")
+            else:
+                print("Failed to stop relay")
+
+        elif parts[0] == "repo.info":
+            commit_hash, commit_date = _selected_socket.gitRepoInfo()
+            if commit_hash is not None and commit_date is not None:
+                print(commit_hash)
+                print(commit_date)
+
+        elif parts[0] == "macro.set":
+            name = parts[1]
+            value = parts[2]
+            macros.set(name, value)
+
+        elif parts[0] == 'macro.delete':
+            name = parts[1]
+            macros.delete(name)
+
+        elif parts[0] == 'remote.upgrade':
+            _selected_socket.upgradeRemoteSide()
+
+        elif parts[0] == 'exec':
+            cmd = ' '.join(parts[1:])
+
+            try:
+                # Run the command locally
+                result = subprocess.check_output(cmd, shell=True, universal_newlines=True)
+                print(result)
+            except subprocess.CalledProcessError as e:
+                print(f"Command execution failed: {e}")
+
+        elif parts[0] == 'get':
+            res = _selected_socket.getPendingReply()
+            if res:
+                print(res)
+
+        elif parts[0] == 'set':
+            if parts[1] == 'timeout':
+                _reply_timeout = int(parts[2])
+
+        else:
+            cmd = macros.get(parts[0])
+            if cmd:
+                print("Executing macro: "+ cmd)
+                self.commands.append(cmd)
+            else:
+                # default to running a command
+                cmd = ''
+                for part in parts:
+                    cmd += part + ' '
+
+                result = _selected_socket.cmd(cmd.strip(), 10000)
+                print(result)
 
     def run(self):
         global _controlc_count, _run, _connection_monitor_threads, _socket_threads, _tunnels, _selected_socket, macros, _reply_timeout
 
-        commands = deque()
-
         while _run:
             try:
-                if len(commands) > 0:
-                    print("Executing: "+ commands[0])
-                    line = commands.popleft()
+                if len(self.commands) > 0:
+                    print("Executing: "+ self.commands[0])
+                    line = self.commands.popleft()
                 else:
                     line = input("#: ")
                     _controlc_count = 0
 
-                parts = []
-                in_quotes = False
-                current_part = ""
-                ignore_next = False
-                for char in line:
-                    if ignore_next:
-                        current_part += char
-                        ignore_next = False
-                    elif char == "\\":
-                        ignore_next = True
-                    elif char == " " and not in_quotes:
-                        parts.append(current_part)
-                        current_part = ""
-                    elif char == '"':
-                        in_quotes = not in_quotes
-                    else:
-                        current_part += char
-                parts.append(current_part)
-
-                if parts[0] == "quit":
-                    _run = False
-                    break
-
-                elif parts[0] == "select":
-                    index = int(parts[1])
-                    if index >= len(_socket_threads):
-                        print("Invalid index")
-                        continue
-
-                    _selected_socket = _socket_threads[index]
-
-                elif parts[0] == "ping":
-                    data = parts[1]
-                    ret = _selected_socket.ping(data)
-                    print(ret)
-
-                elif parts[0] == "con.list":
-                    for thread in _socket_threads:
-                        print(thread.socket.get_remote_address())
-
-                elif parts[0] == "con.close":
-                    index = int(parts[1])
-                    if index >= len(_socket_threads):
-                        print("Invalid index")
-                        continue
-
-                    if (_selected_socket == _socket_threads[index]):
-                        if len(_socket_threads) > 1:
-                            _selected_socket = _socket_threads[0]
-                        else:
-                            _selected_socket = None
-
-                    _connection_monitor_threads[index].close()
-
-                elif parts[0] == "cmd":
-                    tmeout_millis = 15000
-                    if len(parts) >= 3:
-                        tmeout_millis = int(parts[2])
-
-                    _reply_timeout_orig = _reply_timeout
-                    if _reply_timeout < (tmeout_millis//1000)+3:
-                        _reply_timeout = (tmeout_millis//1000)+3
-
-                    result = _selected_socket.cmd(parts[1], tmeout_millis)
-                    print(result)
-
-                    _reply_timeout = _reply_timeout_orig
-
-                elif parts[0] == "sudo":
-                    tmeout_millis = 15000
-                    if len(parts) >= 4:
-                        tmeout_millis = int(parts[3])
-
-                    _reply_timeout_orig = _reply_timeout
-                    if _reply_timeout < (tmeout_millis//1000)+3:
-                        _reply_timeout = (tmeout_millis//1000)+3
-
-                    password = parts[2]
-                    command = "echo '{}' | sudo -S {}".format(password, parts[1])
-                    result = _selected_socket.cmd(command, tmeout_millis)
-                    print(result)
-
-                    _reply_timeout = _reply_timeout_orig
-
-                elif parts[0] == "cmd.stdin":
-                    pid = int(parts[1])
-                    data = parts[2]
-                    tmeout_millis = 15000
-                    if len(parts) <= 4:
-                        tmeout_millis = int(parts[3])
-                    result = _selected_socket.cmdStdIn(pid, data.encode(), tmeout_millis)
-                    print(result)
-
-                elif parts[0] == "cmd.stdout":
-                    pid = int(parts[1])
-                    tmeout_millis = 15000
-                    if len(parts) <= 3:
-                        tmeout_millis = int(parts[2])
-                    result = _selected_socket.cmdStdOut(pid)
-                    print(result)
-
-                elif parts[0] == "con.connect":
-                    con_thread = ConnectionMonitorThread(_tunnel_mode, parts[1], parts[2], int(parts[3]), enc_keys)
-                    con_thread.start()
-                    _connection_monitor_threads.append(con_thread)
-
-                elif parts[0] == "con.sendfile":
-                    local_path = parts[1]
-                    remote_path = parts[2]
-                    resume = True if len(parts) > 3 and parts[3] == "resume" else False
-
-                    if os.path.exists(local_path):
-                        if not resume:
-                            _selected_socket.fileTruncate(remote_path)
-
-                        file_size = os.path.getsize(local_path)
-                        with open(local_path, "rb") as file:
-                            if resume:
-                                offset = _selected_socket.fileSize(remote_path)
-                                file.seek(offset)
-                                
-                            while True:
-                                if _controlc_count > 0:
-                                    _controlc_count -= 1
-                                    break
-
-                                chunk = file.read(1024)
-                                if not chunk:
-                                    break
-
-                                remote_file_size = _selected_socket.sendFileAppend(remote_path, chunk)
-                                print("Sent: "+ str((remote_file_size/file_size)*100) + "% ("+str(remote_file_size)+")")
-
-                                
-                    else:
-                        print("File does not exist")
-
-                elif parts[0] == "con.recvfile":
-                    remote_path = parts[1]
-                    local_path = parts[2]
-                    total_received = 0
-                    file_size = _selected_socket.fileSize(remote_path)
-
-                    if file_size > 0:
-                        offset = 0
-                        if os.path.exists(local_path):
-                            offset = os.path.getsize(local_path)
-
-                        total_received = offset
-
-                        with open(local_path, "ab" if offset > 0 else "wb") as file:
-                            if _selected_socket.openFile(remote_path, offset):
-                                while total_received < file_size:
-                                    if _controlc_count > 0:
-                                        _controlc_count -= 1
-                                        break
-
-                                    chunk = _selected_socket.readFile(remote_path)
-                                    if not chunk:
-                                        break
-
-                                    file.write(chunk)
-                                    total_received += len(chunk)
-                                    print("Received: " + str((total_received/file_size)*100) + "% ("+str(total_received)+")")
-
-                                _selected_socket.closeFile(remote_path)
-    
-                    else:
-                        print("File does not exist")
-
-                elif parts[0] == "tunnel.create": # Mode is always the local mode
-                    enc_mode = 0 
-                    if parts[1] == TunnelMode.CLIENT:
-                        enc_mode = 1
-                    elif parts[1] == TunnelMode.INVERTED_SERVER:
-                        enc_mode = 2
-
-                    local_socket_mode = 0 if parts[2] == TunnelMode.SERVER else 1
-                    remote_socket_mode = 0 if parts[3] == TunnelMode.SERVER else 1
-
-                    if int(parts[4]) == -1:
-                        key_index = random.randint(0, len(enc_keys)-1)
-                    else:
-                        key_index = int(parts[4])
-
-                    local_address = parts[5]
-                    local_port = int(parts[6])
-                    local_enc_address = parts[7]
-                    local_enc_port = int(parts[8])
-
-                    remote_address = parts[9]
-                    remote_port = int(parts[10])
-                    remote_enc_address = parts[11]
-                    remote_enc_port = int(parts[12])
-
-                    def create_remote_tunnel():
-                        if enc_mode == 0:
-                            remote_enc_mode = 1
-                        elif enc_mode == 2:
-                            remote_enc_mode = 2
-                        else:
-                            remote_enc_mode = 0
-
-                        print("Creating remote tunnel", remote_enc_mode, remote_socket_mode)
-                        return _selected_socket.openTunnel(remote_enc_mode, remote_socket_mode, key_index, remote_address, remote_port, remote_enc_address, remote_enc_port)
-                        
-                    def create_local_tunnel():
-                        print("Creating local tunnel", enc_mode, local_socket_mode)
-                        local_enc_mode = enc_mode
-                        if enc_mode == 2:
-                            local_enc_mode = 1
-
-                        print(local_address + ":" + str(local_port))
-                        print(local_enc_address + ":" + str(local_enc_port))
-
-                        tunnel = Tunnel(enc_keys, local_enc_mode, local_socket_mode)
-                        tunnel.connect(key_index, local_address, local_port, local_enc_address, local_enc_port)
-                        _tunnels.append(tunnel)
-                        return tunnel
-
-                    # create remote server part of the tunnel first regardless if remote or local
-                    if enc_mode == 1:
-                        print("Client Mode")
-                        if create_remote_tunnel():
-                            create_local_tunnel()
-                    else:
-                        print("Server Mode")
-                        tun =  create_local_tunnel()
-                        if not create_remote_tunnel():
-                            _tunnels.remove(tun)
-
-                elif parts[0] == "tunnel.list":
-                    for tunnel in _tunnels:
-                        print(tunnel.status())
-
-                elif parts[0] == "tunnel.close":
-                    index = int(parts[1])
-                    if index >= len(_tunnels):
-                        print("Invalid index")
-                        continue
-
-                    res = _selected_socket.closeTunnel(index)
-                    if res:
-                        _tunnels[index].close()
-                        _tunnels.pop(index)
-                        print("Closed tunnel")
-                    else:
-                        print("Failed to close tunnel")
-
-                elif parts[0] == "relay.start":
-                    host1 = parts[1]
-                    port1 = int(parts[2])
-                    host2 = parts[3]
-                    port2 = int(parts[4])
-
-                    res = _selected_socket.startRelay(host1, port1, host2, port2)
-
-                    if res:
-                        print("Started relay")
-                    else:
-                        print("Failed to start relay")
-
-                elif parts[0] == "relay.list":
-                    relays = _selected_socket.listRelays()
-                    for relay in relays:
-                        print(relay.address1 +":"+ str(relay.port1) +" -> "+ relay.address2 +":"+ str(relay.port2) + " ("+ str(relay.connected1) +","+ str(relay.connected2) +","+ str(relay.is_running) +")")
-
-                elif parts[0] == "relay.stop":
-                    res = _selected_socket.stopRelay(int(parts[1]))
-                    if res:
-                        print("Stopped relay")
-                    else:
-                        print("Failed to stop relay")
-
-                elif parts[0] == "repo.info":
-                    commit_hash, commit_date = _selected_socket.gitRepoInfo()
-                    if commit_hash is not None and commit_date is not None:
-                        print(commit_hash)
-                        print(commit_date)
-
-                elif parts[0] == "macro.set":
-                    name = parts[1]
-                    value = parts[2]
-                    macros.set(name, value)
-
-                elif parts[0] == 'macro.delete':
-                    name = parts[1]
-                    macros.delete(name)
-
-                elif parts[0] == 'remote.upgrade':
-                    _selected_socket.upgradeRemoteSide()
-
-                elif parts[0] == 'exec':
-                    cmd = ' '.join(parts[1:])
-
-                    try:
-                        # Run the command locally
-                        result = subprocess.check_output(cmd, shell=True, universal_newlines=True)
-                        print(result)
-                    except subprocess.CalledProcessError as e:
-                        print(f"Command execution failed: {e}")
-
-                elif parts[0] == 'get':
-                    res = _selected_socket.getPendingReply()
-                    if res:
-                        print(res)
-
-                elif parts[0] == 'set':
-                    if parts[1] == 'timeout':
-                        _reply_timeout = int(parts[2])
-
-                else:
-                    cmd = macros.get(parts[0])
-                    if cmd:
-                        print("Executing macro: "+ cmd)
-                        commands.append(cmd)
-                    else:
-                        # default to running a command
-                        cmd = ''
-                        for part in parts:
-                            cmd += part + ' '
-
-                        result = _selected_socket.cmd(cmd.strip(), 10000)
-                        print(result)
-
+                self.parse(line)
 
             except Exception as e:
                 print(str(e))
@@ -1271,7 +1281,7 @@ def signal_handler(sig, frame):
         raise KeyboardInterrupt
 
 def main():
-    global _run, _tunnel_mode, connections, _relays, enc_keys, _selected_socket
+    global _run, _tunnel_mode, connections, _relays, enc_keys, _selected_socket, _heart_beat_thread
 
     # Register the signal handler for SIGINT
     signal.signal(signal.SIGINT, signal_handler)
@@ -1290,9 +1300,9 @@ def main():
         _relays.append(relay)
 
     for connection in connections:
-        host, port, socket_mode = connection
+        host, port, socket_mode, on_connect = connection
 
-        con_thread = ConnectionMonitorThread(_tunnel_mode, socket_mode, host, port, enc_keys)
+        con_thread = ConnectionMonitorThread(_tunnel_mode, socket_mode, host, port, enc_keys, on_connect)
         con_thread.start()
         _connection_monitor_threads.append(con_thread)
 

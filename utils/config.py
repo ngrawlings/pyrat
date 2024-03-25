@@ -18,7 +18,8 @@ def load_config(file_path):
             host = connection['host']
             port = int(connection['port'])
             socket_mode = connection['socket_mode']
-            connections.append((host, port, socket_mode))
+            on_connect = connection['on_connect'] if 'on_connect' in connection else None
+            connections.append((host, port, socket_mode, on_connect))
 
         if 'relays' in data:
             for relay in data['relays']:
